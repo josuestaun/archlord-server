@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ArchCore: iniciar laboratorio",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", "${workspaceFolder}/scripts/archcore-lab.ps1", "Start"],
+      "problemMatcher": []
+    },
+    {
+      "label": "ArchCore: detener laboratorio",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", "${workspaceFolder}/scripts/archcore-lab.ps1", "Stop"],
+      "problemMatcher": []
+    },
+    {
+      "label": "ArchCore: consultar estado",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", "${workspaceFolder}/scripts/archcore-lab.ps1", "Status"],
+      "problemMatcher": []
+    }
+  ],
+  "presentation": {
+    "reveal": "always",
+    "panel": "dedicated",
+    "clear": true
+  }
+}

@@ -38,7 +38,37 @@ La guía de ArchCore indica MariaDB 10.6 o posterior. Se usó MariaDB `11.4.14` 
 4. Conceder a `archcore_runtime` únicamente `SELECT`, `INSERT` y `UPDATE` en autenticación, esos tres permisos y `DELETE` en personajes, `SELECT` en mundo y `SELECT` e `INSERT` en logs. Esta cuenta usa `auth.conf` y `world.conf` con los mismos valores `Database.Host`, `Database.Port`, `Database.User`, `Database.Password`, `Database.Auth`, `Database.Characters`, `Database.World` y `Database.Logs`. Se usó `Database.ConnectionLimit = 4` en ambos archivos.
 5. Fijar `LoginServer.Bind = "127.0.0.1"` y `LoginServer.Port = 11002` en `auth.conf`. Fijar `WorldServer.Bind = "127.0.0.1"`, `WorldServer.Port = 11008`, `WorldServer.PublicAddress = "127.0.0.1"`, `SOAP.Enabled = 0`, `SOAP.IP = "127.0.0.1"` y `Client.TablesDir = ""` en `world.conf`. ArchCore permite sobrescribir la configuración por entorno. Comprobar que ninguna variable heredada sustituya los ajustes de red o de base de datos. [Lector de configuración](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/config.rs)
 
-## Arranque y parada
+## Controles desde VS Code y PowerShell
+
+En VS Code, abre la carpeta `archlord` y ejecuta **Tareas: Ejecutar tarea** desde la paleta de comandos (`Ctrl+Shift+P`). Elige **ArchCore: iniciar laboratorio**, **ArchCore: consultar estado** o **ArchCore: detener laboratorio**. Al iniciar, la salida de ArchCore aparece en una ventana de consola de Windows. Las tareas de estado y parada escriben en el terminal de VS Code.
+
+Desde PowerShell, ejecuta el script en la raíz de `archlord`.
+
+```powershell
+.\scripts\archcore-lab.ps1 Start
+.\scripts\archcore-lab.ps1 Status
+.\scripts\archcore-lab.ps1 Stop
+```
+
+Las tareas de VS Code usan Windows PowerShell 5.1 con `RemoteSigned` en el proceso de la tarea. Para usar esa misma política en un comando, ejecuta `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\archcore-lab.ps1 Start`.
+
+El script busca por defecto una carpeta `archcore-windows-lab` junto al repositorio `archlord`. Si la ubicación cambia, configura `ARCHCORE_LAB_ROOT` en el entorno desde el que abres VS Code o usa `-LabRoot` en cada comando de PowerShell. El valor señala el checkout externo, que contiene `local-server` y `target`. La ubicación de los binarios también se puede especificar con `ARCHCORE_MARIADB_BIN` y `ARCHCORE_EXE`, o con `-MariaDbBin` y `-ArchCoreExe`.
+
+`Start` usa la instalación y los archivos de opciones existentes. Comprueba que MariaDB acepte una consulta autenticada antes de iniciar ArchCore. La configuración efectiva de red usa `127.0.0.1`, con los puertos `3317`, `11002` y `11008` y SOAP desactivado. Una segunda ejecución conserva los PID de una instancia administrada que ya esté activa. Los procesos que se iniciaron manualmente siguen bajo el control de quien los inició. Si un puerto está ocupado, `Status` muestra su dirección y PID.
+
+`Stop` verifica el PID, la hora de inicio y el ejecutable registrado. Primero envía Ctrl+C a la consola de ArchCore y luego ordena el cierre de MariaDB por su puerto local mediante `mariadb-admin`. Espera a que terminen los procesos y comprueba que queden libres los puertos. Si una parada ordenada falla, el comando informa del fallo para poder consultar el estado. Se puede pulsar Ctrl+C directamente en la ventana de ArchCore y después usar `Stop` para apagar MariaDB.
+
+Los controles guardan el registro de procesos y su bloqueo en `local-server` del laboratorio externo. Los archivos de credenciales siguen en las rutas privadas existentes. Si `Start` rechaza las opciones de MariaDB, comprueba que `mariadb.ini` corresponda a la instancia inicializada y conserve el perfil de opciones documentado. [Tareas de VS Code](https://code.visualstudio.com/docs/debugtest/tasks)
+
+### Verificación de los controles
+
+En Windows PowerShell 5.1 se comprobó que `Status` detecta los servicios detenidos y los puertos libres, también cuando se especifica `ARCHCORE_LAB_ROOT`. Se verificaron el bloqueo entre comandos simultáneos, la lectura y escritura del registro de procesos, la sintaxis de PowerShell y la correspondencia de las tres tareas de VS Code. Con sockets simulados se comprobó el rechazo de puertos ocupados por otro PID, direcciones comodín IPv4 e IPv6 y puertos adicionales.
+
+El 21 de noviembre de 2026 se ejecutó el ciclo real con los mismos comandos de PowerShell que usan las tareas de VS Code. `Start` arrancó MariaDB y ArchCore, y al repetirlo conservó los dos PID. Se confirmó en el área visible de la consola de Windows la línea `INFO` de mundo en el puerto `11008`. La primera sonda intentó encontrar las líneas de login y mundo en la misma captura de consola. Se ajustó la comprobación para verificar el log visible y comprobar ambos servicios mediante sus sockets y conexiones TCP. El script de control funcionó sin cambios.
+
+`Status` mostró MariaDB en `127.0.0.1:3317` y ArchCore en `127.0.0.1:11002` y `127.0.0.1:11008`, con PID de los ejecutables esperados. Las conexiones TCP locales a login y mundo funcionaron. La inspección independiente de los dos PID encontró solo esas tres escuchas TCP, todas en `127.0.0.1`, y cero endpoints UDP. `Stop` cerró ambos procesos con código `0` y MariaDB registró `Shutdown complete`. El último `Status` y la inspección de procesos y puertos confirmaron que el laboratorio quedó detenido.
+
+## Arranque y parada manuales
 
 Desde una consola PowerShell propia para MariaDB, arrancar la instancia ya preparada en primer plano.
 
