@@ -1,0 +1,14 @@
+# Hoja de ruta del proyecto
+
+El primer objetivo es reproducir una sesión local con un cliente, una cuenta de prueba y una zona jugable. La publicación se decidirá por separado.
+
+| Fase | Alcance | Criterios de finalización |
+| --- | --- | --- |
+| 0. Base del repositorio | Inspeccionar Git, establecer las reglas de trabajo y documentar la arquitectura provisional y la investigación inicial. | Los cuatro archivos de base están presentes y las reglas de exclusión locales están verificadas. |
+| 1. Viabilidad | Identificar la versión objetivo de ArchLord y la compilación exacta del cliente. Revisar la documentación de los servidores candidatos, sus licencias, la procedencia de los datos, la compatibilidad y las dependencias. | Registrar las revisiones del cliente y del servidor, los recursos necesarios y sus usos permitidos, y un procedimiento de arranque local que pueda probarse. Si ninguna combinación cumple los requisitos, registrar qué evidencia falta y acordar el alcance de un prototipo independiente. |
+| 2. Prueba de concepto local | Configurar en un solo equipo la tecnología seleccionada con datos locales de prueba. Probar el arranque, el inicio de sesión, la creación o selección de un personaje y la entrada al mundo. | Desde una instalación local limpia, iniciar sesión, entrar en una zona, moverse, reconectar y comprobar el estado del personaje después de reiniciar el servidor. Verificar que los servicios del juego y la base de datos solo sean accesibles desde el propio equipo. |
+| 3. Prueba de jugabilidad local | Comprobar que dos clientes locales puedan verse entre sí y validar un ciclo de combate y recompensa. Añadir comprobaciones específicas y documentar la configuración, los registros y las carencias conocidas. | Reproducir el escenario con cuentas de prueba y demostrar que la recompensa y el estado del personaje se conservan según lo previsto. |
+| 4. Prueba privada, opcional | Preparar una prueba controlada si se aprueba. Revisar el acceso, el soporte de las dependencias, las copias de seguridad y su restauración, la monitorización y los costes de operación. | Demostrar que se pueden restaurar los datos y revertir los cambios, documentar los límites conocidos y obtener autorización para cualquier acceso externo. |
+| 5. Operación pública, opcional | Revisar los derechos de alojamiento, uso de nombres y distribución de cada componente. Planificar la gestión del abuso, la privacidad, el soporte de las dependencias, la capacidad y la respuesta a incidentes. | Resolver los derechos y requisitos operativos aplicables, superar las comprobaciones previas al lanzamiento y obtener autorización explícita para publicar. |
+
+La fase 1 comienza con los [requisitos de viabilidad local](ARCHITECTURE.md#requisitos-de-viabilidad-local). Parte de una compilación conocida del cliente para poder reproducir los resultados de compatibilidad.
