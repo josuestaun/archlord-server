@@ -8,6 +8,65 @@ ArchCore `ad280a6efc069526fc58445e5397d52a0e809500` es un laboratorio EP8. El ob
 
 El binario x64 se compiló en Windows 11 25H2 con Rust y Cargo `1.100.0`, MSVC y Windows SDK `10.0.26100.0`. Se volvió a comprobar su SHA-256 antes de arrancar. El checkout y el ejecutable están en `D:\proyectos\archcore-windows-lab`. Su subdirectorio `local-server` contiene MariaDB, su directorio de datos, la configuración de ArchCore y los logs. Se restringió el acceso al directorio al usuario de Windows del laboratorio. [Compilación y huella del binario](ARCHCORE_WINDOWS_LAB.md)
 
+## Fuentes en el repositorio principal
+
+`server/archcore/` contiene el submódulo de código fuente de ArchCore. El repositorio principal registra `.gitmodules` y un gitlink con la revisión exacta `ad280a6efc069526fc58445e5397d52a0e809500`. El historial de ArchCore es independiente. `git status` consulta el Git principal y `git -C server/archcore status` consulta el de ArchCore. El upstream declara GPL-3.0-or-later para el código. Las tablas y el mapa incluidos en el árbol upstream quedan fuera del checkout de laboratorio. [Git y submódulos](https://git-scm.com/docs/gitsubmodules) · [Revisión de ArchCore](https://github.com/BlaMacfly/ArchCore/commit/ad280a6efc069526fc58445e5397d52a0e809500) · [Licencia declarada](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/README.md#license)
+
+| Contenido | Ubicación |
+| --- | --- |
+| Fuentes, manifiestos y SQL de referencia | `archlord\server\archcore` |
+| Scripts, tareas de VS Code y documentación | `archlord\scripts`, `archlord\.vscode` y `archlord\docs` |
+| Ejecutable de respaldo | `D:\proyectos\archcore-windows-lab\target\x86_64-pc-windows-msvc\release\archcore.exe` |
+| Configuración local y credenciales | `D:\proyectos\archcore-windows-lab\local-server\archcore-config`, `mariadb.ini` y `private` |
+| Distribución, base MariaDB y logs | `D:\proyectos\archcore-windows-lab\local-server\distribution`, `database` y `logs` |
+
+### Inicializar después de clonar
+
+Desde la raíz de `archlord`, ejecuta el inicializador con Git para Windows `2.51` o una versión compatible con `git clone --revision`. El script lee el gitlink del índice, comprueba la URL oficial y prepara un clon parcial antes de materializar los archivos. Evita `git clone --recurse-submodules` y `git submodule update --init` para la primera descarga. Esos comandos pueden materializar directorios de recursos excluidos de este laboratorio. [Clon parcial](https://git-scm.com/docs/git-clone) · [Checkout disperso](https://git-scm.com/docs/git-sparse-checkout)
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\initialize-archcore-source.ps1
+git submodule status -- server/archcore
+git -C server/archcore rev-parse HEAD
+```
+
+Abre `archlord` como carpeta de trabajo en VS Code. En el explorador, despliega `server/archcore/crates/archcore/src` y abre `main.rs`. Las dos crates de Rust y `Cargo.toml` están en el submódulo. La tarea **ArchCore: consultar fuentes** muestra la ruta de fuentes, su revisión y el directorio de salida de Cargo del laboratorio. En PowerShell puedes usar `.\scripts\archcore-lab.ps1 Source` o indicar una ruta con `-SourceRoot` o `ARCHCORE_SOURCE_ROOT`. La consulta de fuentes funciona aunque aún no haya un ejecutable ni una instancia MariaDB.
+
+### Cambiar la revisión del submódulo
+
+Revisa primero el estado de ambos repositorios. Para una revisión nueva, revisa sus rutas, licencia y atributos antes de materializar archivos. Conserva el filtro de blobs y el checkout disperso. Cambia a un SHA publicado en el remoto configurado y luego registra ese SHA como gitlink en una rama del proyecto principal.
+
+```powershell
+$revision = '<SHA publicado y revisado>'
+git -C server/archcore status --short
+git -C server/archcore -c protocol.version=2 fetch --filter=blob:none --no-tags origin $revision
+git -C server/archcore ls-tree -r --name-only $revision
+# Review the candidate tree and attributes before switching the working tree.
+git -C server/archcore sparse-checkout list
+git -C server/archcore -c core.hooksPath=NUL switch --detach $revision
+git add -- server/archcore
+git diff --cached --submodule=log -- server/archcore
+```
+
+Si necesitamos modificar ArchCore, el cambio se desarrolla y se revisa en una rama de su propio Git. El commit debe poder obtenerse desde la URL del submódulo antes de actualizar el gitlink del proyecto principal. Si se adopta un fork, revisa y actualiza también `.gitmodules` y la URL admitida por el inicializador. Conserva el binario conocido de respaldo si vas a probar una revisión distinta. Puedes seleccionar el nuevo ejecutable con `-ArchCoreExe` o `ARCHCORE_EXE` una vez que el laboratorio esté detenido.
+
+### Reproducir el laboratorio en otro equipo
+
+Inicializa el código fuente con los pasos anteriores. Usa Rust para Windows x64 con MSVC y Windows SDK según la [prueba de compilación](ARCHCORE_WINDOWS_LAB.md). Si necesitas un binario, compila el submódulo con `Cargo.lock` y apunta `CARGO_TARGET_DIR` al `target` de un laboratorio externo. Con un perfil de compilación o revisión distinto, usa un directorio de salida separado para conservar el binario de respaldo.
+
+```powershell
+$env:ARCHCORE_LAB_ROOT = 'D:\proyectos\archcore-windows-lab'
+$env:CARGO_TARGET_DIR = Join-Path $env:ARCHCORE_LAB_ROOT 'target'
+Push-Location server/archcore
+try {
+    cargo build --locked --release -p archcore --target x86_64-pc-windows-msvc
+} finally {
+    Pop-Location
+}
+```
+
+Prepara una instancia MariaDB nueva siguiendo la sección de preparación de este documento y genera credenciales de esa máquina. Coloca `mariadb.ini`, `archcore-config`, `private`, la distribución y el directorio de datos bajo `local-server` del laboratorio externo. El submódulo aporta las fuentes y las migraciones que se embeben al compilar. La base de datos, las credenciales y los binarios se aprovisionan localmente.
+
 | Componente | Escucha verificada | Función |
 | --- | --- | --- |
 | MariaDB | `127.0.0.1:3317/TCP` | Persistencia en cuatro esquemas de una instancia nueva. |
@@ -52,7 +111,7 @@ Desde PowerShell, ejecuta el script en la raíz de `archlord`.
 
 Las tareas de VS Code usan Windows PowerShell 5.1 con `RemoteSigned` en el proceso de la tarea. Para usar esa misma política en un comando, ejecuta `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\archcore-lab.ps1 Start`.
 
-El script busca por defecto una carpeta `archcore-windows-lab` junto al repositorio `archlord`. Si la ubicación cambia, configura `ARCHCORE_LAB_ROOT` en el entorno desde el que abres VS Code o usa `-LabRoot` en cada comando de PowerShell. El valor señala el checkout externo, que contiene `local-server` y `target`. La ubicación de los binarios también se puede especificar con `ARCHCORE_MARIADB_BIN` y `ARCHCORE_EXE`, o con `-MariaDbBin` y `-ArchCoreExe`.
+Para `Start`, `Status` y `Stop`, el script busca por defecto una carpeta `archcore-windows-lab` junto al repositorio `archlord`. Si la ubicación cambia, configura `ARCHCORE_LAB_ROOT` en el entorno desde el que abres VS Code o usa `-LabRoot` en cada comando de PowerShell. El valor señala el laboratorio externo, que contiene `local-server` y `target`. La ubicación de los binarios también se puede especificar con `ARCHCORE_MARIADB_BIN` y `ARCHCORE_EXE`, o con `-MariaDbBin` y `-ArchCoreExe`.
 
 `Start` usa la instalación y los archivos de opciones existentes. Comprueba que MariaDB acepte una consulta autenticada antes de iniciar ArchCore. La configuración efectiva de red usa `127.0.0.1`, con los puertos `3317`, `11002` y `11008` y SOAP desactivado. Una segunda ejecución conserva los PID de una instancia administrada que ya esté activa. Los procesos que se iniciaron manualmente siguen bajo el control de quien los inició. Si un puerto está ocupado, `Status` muestra su dirección y PID.
 
@@ -67,6 +126,8 @@ En Windows PowerShell 5.1 se comprobó que `Status` detecta los servicios deteni
 El 21 de noviembre de 2026 se ejecutó el ciclo real con los mismos comandos de PowerShell que usan las tareas de VS Code. `Start` arrancó MariaDB y ArchCore, y al repetirlo conservó los dos PID. Se confirmó en el área visible de la consola de Windows la línea `INFO` de mundo en el puerto `11008`. La primera sonda intentó encontrar las líneas de login y mundo en la misma captura de consola. Se ajustó la comprobación para verificar el log visible y comprobar ambos servicios mediante sus sockets y conexiones TCP. El script de control funcionó sin cambios.
 
 `Status` mostró MariaDB en `127.0.0.1:3317` y ArchCore en `127.0.0.1:11002` y `127.0.0.1:11008`, con PID de los ejecutables esperados. Las conexiones TCP locales a login y mundo funcionaron. La inspección independiente de los dos PID encontró solo esas tres escuchas TCP, todas en `127.0.0.1`, y cero endpoints UDP. `Stop` cerró ambos procesos con código `0` y MariaDB registró `Shutdown complete`. El último `Status` y la inspección de procesos y puertos confirmaron que el laboratorio quedó detenido.
+
+Al añadir el submódulo, se reprodujo su inicialización en un clon temporal con el gitlink propuesto en su índice. La consulta encontró las fuentes y la revisión fijada con `data`, `content`, `config`, `db` y los artefactos fuera del checkout. Se repitió `Start` → `Status` → `Stop` con el ejecutable de respaldo. Se mantuvieron las tres escuchas en `127.0.0.1`, se vio el log de mundo en la consola y las dos conexiones TCP funcionaron. El segundo `Start` conservó los PID. Ambos procesos salieron con código `0` y los puertos quedaron libres.
 
 ## Arranque y parada manuales
 

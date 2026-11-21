@@ -22,6 +22,7 @@ flowchart LR
 | Implementación y almacenamiento | Pendientes de verificar una combinación compatible y los datos que requiere. Para la primera ejecución, usar la topología y el procedimiento de inicialización de datos que documente el proyecto elegido. |
 | Herramientas propias | TypeScript es una opción si la instalación requiere herramientas propias. Considerar Angular cuando haya un caso de uso concreto para una interfaz web. El primer hito se puede completar sin ella. |
 | Archivos locales | Mantener los archivos y datos autorizados del cliente fuera de la copia de trabajo siempre que sea posible. Si se necesita una ruta en el espacio de trabajo, usar el directorio excluido `.local/` para preparar archivos locales y guardar el estado de ejecución y los archivos de depuración. Mantener en Git los ejemplos de configuración y las migraciones del esquema propias del proyecto para poder revisarlos. |
+| Fuentes del laboratorio EP8 | `server/archcore` es un submódulo de `BlaMacfly/ArchCore` fijado a `ad280a6`. El Git principal registra el gitlink y el Git de ArchCore conserva su propio historial. El checkout parcial materializa Rust, manifiestos y SQL revisado. La configuración, MariaDB y los binarios se mantienen en el laboratorio externo. [Estructura e inicialización](ARCHCORE_LOCAL_SERVER.md#fuentes-en-el-repositorio-principal) |
 
 ## Resultados de la investigación
 

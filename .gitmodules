@@ -1,0 +1,3 @@
+[submodule "server/archcore"]
+	path = server/archcore
+	url = https://github.com/BlaMacfly/ArchCore.git

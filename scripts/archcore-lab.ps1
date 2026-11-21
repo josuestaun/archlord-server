@@ -2,20 +2,38 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('Start', 'Stop', 'Status', 'Signal')]
+    [ValidateSet('Start', 'Stop', 'Status', 'Source', 'Signal')]
     [string]$Action,
 
     [string]$LabRoot = $env:ARCHCORE_LAB_ROOT,
     [string]$MariaDbBin = $env:ARCHCORE_MARIADB_BIN,
-    [string]$ArchCoreExe = $env:ARCHCORE_EXE
+    [string]$ArchCoreExe = $env:ARCHCORE_EXE,
+    [string]$SourceRoot = $env:ARCHCORE_SOURCE_ROOT
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if (-not $LabRoot) {
-    $projects = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $LabRoot = Join-Path $projects 'archcore-windows-lab'
+$workspaceRoot = Split-Path -Parent $PSScriptRoot
+if (-not $LabRoot) { $LabRoot = Join-Path (Split-Path -Parent $workspaceRoot) 'archcore-windows-lab' }
+
+if ($Action -eq 'Source') {
+    if (-not $SourceRoot) {
+        $submodule = Join-Path $workspaceRoot 'server\archcore'
+        $SourceRoot = if (Test-Path -LiteralPath (Join-Path $submodule 'Cargo.toml') -PathType Leaf) { $submodule } else { $LabRoot }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot 'Cargo.toml') -PathType Leaf)) {
+        throw 'The ArchCore sources are unavailable. Initialise server/archcore or provide -SourceRoot.'
+    }
+    $source = (Get-Item -LiteralPath $SourceRoot).FullName
+    $gitRoot = & git -C $source rev-parse --show-toplevel
+    if ($LASTEXITCODE -ne 0 -or (Get-Item -LiteralPath $gitRoot).FullName -ne $source) { throw 'The source path is not an independent Git checkout.' }
+    $revision = & git -C $source rev-parse --verify HEAD
+    if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') { throw 'Cannot read the ArchCore source revision.' }
+    Write-Host "ArchCore sources: $source"
+    Write-Host "ArchCore revision: $revision"
+    Write-Host "Laboratory Cargo target: $(Join-Path $LabRoot 'target')"
+    return
 }
 $LabRoot = (Get-Item -LiteralPath $LabRoot).FullName
 $lab = (Get-Item -LiteralPath (Join-Path $LabRoot 'local-server')).FullName
