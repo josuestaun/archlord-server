@@ -21,6 +21,13 @@
       "command": "powershell.exe",
       "args": ["-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", "${workspaceFolder}/scripts/archcore-lab.ps1", "Status"],
       "problemMatcher": []
+    },
+    {
+      "label": "ArchCore: consultar fuentes",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", "${workspaceFolder}/scripts/archcore-lab.ps1", "Source", "-SourceRoot", "${workspaceFolder}/server/archcore"],
+      "problemMatcher": []
     }
   ],
   "presentation": {
