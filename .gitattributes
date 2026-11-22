@@ -1,0 +1,3 @@
+# Keep unified diffs and the upstream license byte-stable on Windows.
+/server/patches/archcore/*.patch text eol=lf
+/server/patches/archcore/COPYING text eol=lf
