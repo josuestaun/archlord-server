@@ -198,6 +198,43 @@ El 22 de noviembre de 2026 se usó la instancia `archonia-manual-session` del la
 
 [Creación y posición inicial en ArchCore](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/login.rs#L418-L481) · [Registro de movimiento y salida](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/presence.rs#L41-L128)
 
+## Ensayo de aparición en Anchorville
+
+El 22 de noviembre de 2026 se hizo una copia en frío de la sesión manual bajo `archonia-knight-spawn-movement` en el laboratorio externo. Se compararon los SHA-256 de los 408 archivos de la base original y la copia antes del arranque. La copia tiene permisos de acceso restringidos y usa MariaDB en `127.0.0.1:3337`. Antes de la escritura se comprobó por SQL que el directorio de datos activo era el de la copia. Login y mundo usan `127.0.0.1:11102` y `127.0.0.1:11108` para conservar la lista de mundos y el `ArchoniaTest.ini` ya configurados.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Personaje conservado | MariaDB devolvió el Knight CID `1`, TID `96`, nivel `1`, con posición `(0, 13625.5234375, 0)` en la copia inicial. |
+| Velocidad de marcha y carrera | Los campos JSON `Movement Walk` y `Movement Run` están ausentes y no hay una fila TID `96` en `character_template`. El código crea la plantilla con ambos factores en cero en este caso. |
+| Posición candidata | El punto humano de referencia de ArchCore cae en el sector `(325, 389)`. La lectura en memoria del terreno del parche `665` en `b002024x.ma2` dio una altura interpolada de `4632.007`. La base de mundo de la prueba informó cero segmentos y cero sectores con altura. |
+| Escritura en la copia | Se actualizó una sola fila, el CID `1`, y SQL devolvió `(-475955, 4632, -66219)`. Se conservaron las velocidades. Los 408 SHA-256 de la base original volvieron a coincidir después del arranque de ArchCore. |
+| Primera prueba gráfica | El cliente entró en el sector `(325, 389)` y la sonda registró 73 órdenes de movimiento, entre ellas 24 destinos de clic. Todas las muestras de posición del servidor siguieron en `(-475955, 4632, -66219)` mientras el Knight estuvo conectado. |
+| Cierre de la primera prueba | Al salir, SQL mostró `(-476247, 4609.40771484375, -66252.46875)`. Coincide con el último destino pendiente. Esta revisión de ArchCore asigna ese destino al salir, así que el cambio guardado por sí solo no demuestra un recorrido. |
+| Segunda prueba, datos iniciales | Se añadieron solo las cadenas `Movement Walk = "5000"` y `Movement Run = "6000"` al JSON del Knight TID `96` en la copia. SQL confirmó ambas cadenas y la posición que se había guardado al salir del primer ensayo. ArchCore se detuvo normalmente y arrancó de nuevo con la misma MariaDB de pruebas. Las velocidades de prueba equivalen a 500 y 600 unidades del mundo por segundo según el código de movimiento. |
+| Segunda prueba, recorrido | En la sonda, el Knight pasó por `(-476165, 4615, -66457)` y `(-475735, 4649, -66380)`, con un cambio de dirección entre ambos puntos. Recibió 22 órdenes de carrera por clic y avanzó mientras estuvo conectado. La velocidad horizontal media en 14 intervalos sin cambio de destino fue de aproximadamente 595,7 unidades por segundo. |
+| Segunda prueba, guardado y reconexión completa | La última muestra antes de salir mostró al Knight detenido en `(-474927, 3355, -50067)`. MariaDB devolvió `(-474926.59375, 3354.62890625, -50067.45703125)` después de la salida. Tras cerrar completamente Archonia, abrirlo otra vez e iniciar sesión con la misma cuenta, la primera muestra del Knight coincidió con esa posición a la precisión del log. |
+
+El gestor de la sesión manual se revisó por lectura. La prueba usa comandos específicos para la copia porque el gestor anterior puede dejar MariaDB activa tras un arranque parcial y su parada no vuelve a validar el destino del archivo de administración. La sonda se habilita solo para la copia y sus archivos permanecen fuera de Git.
+
+El ensayo confirma avance en X/Z con clics en modo carrera, parada y recuperación del punto guardado desde un proceso nuevo de Archonia. La cadena de marcha quedó confirmada por SQL y el código que carga los factores. La sonda de esta sesión solo recibió órdenes en modo carrera. Sigue pendiente comprobar la marcha por separado y recuperar un recorrido tras reiniciar el servidor.
+
+[Referencia de Anchorville y sectores](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/map.rs#L124-L130) · [Aplicación de velocidades](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/character.rs#L147-L179) · [Sonda de movimiento](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/probe.rs#L135-L150) · [Guardado al salir](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/presence.rs#L41-L63)
+
+### Bloqueo al volver a selección de personajes
+
+El usuario observó el bloqueo con Archonia x64 parche `665`, ArchCore `ad280a6` y la copia aislada de Anchorville.
+
+1. Abrir `Archonia.exe` con el grupo local `ArchCore`, iniciar sesión y entrar al mundo con el Knight existente.
+2. Dejar al Knight detenido y fuera de combate. Abrir el menú de salida y escoger la opción de volver a la selección de personajes.
+3. El cliente queda en una pantalla con un mensaje similar a «Attempting to reconnect». Se esperaba que mostrara la lista de personajes en la misma ventana.
+4. Como salida comprobada, cerrar completamente `Archonia.exe`, abrirlo de nuevo con el mismo grupo, iniciar sesión y elegir el mismo Knight. El personaje reaparece en el punto guardado.
+
+El log registra que mundo tramitó una solicitud de regreso. En ese intento, el log de login no registra ni validación ni rechazo de la clave de retorno. El primer paso de investigación será comprobar el destino de la conexión que abre el cliente tras la respuesta de mundo y si ArchCore recibe la operación `0x2F` op `6` en el puerto `11102`. Si llega, seguir la validación de la clave y el envío de op `7` y de la lista de personajes. Registrar horas, operaciones y puertos sin guardar el valor de la clave. [Flujo de mundo](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/return_login.rs#L1-L19) · [Validación en login](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/login.rs#L212-L240)
+
+### Recuperar el Knight de Anchorville
+
+Reanudar la base existente en `archonia-knight-spawn-movement\db` con el `mariadb.ini` de esa copia. Confirmar que MariaDB informa ese directorio en `@@datadir` y escucha en `127.0.0.1:3337`. Arrancar ArchCore con el directorio raíz y la configuración de la copia, apuntando a esa MariaDB. Abrir manualmente `Game\Archonia.exe`, entrar por el grupo `ArchCore` en `127.0.0.1:11102` y seleccionar el Knight existente con la cuenta de la prueba. El punto que debe cargar tras el ensayo es `(-474926.59375, 3354.62890625, -50067.45703125)`. La sesión manual original se conserva por separado.
+
 ## Alternativa secundaria con ArchRust
 
 1. Con autorización separada, revisar dependencias y scripts de compilación del pin de ArchRust. Compilar en Windows x64 con su `Cargo.lock` y registrar revisión, versión de herramientas y hash del binario propio. Preparar `--no-client` con rutas de paquetes vacías o auditadas. Confirmar primero que abre la ventana de login. La fase se puede detener ahí sin iniciar servicios ni escribir en MariaDB. [Compilación y comandos de ArchRust](https://github.com/BlaMacfly/ArchRust/blob/256888eb123063e21711bde98f9572c44fed5bee/README.en.md#L67-L85) · [Manifiesto Cargo](https://github.com/BlaMacfly/ArchRust/blob/256888eb123063e21711bde98f9572c44fed5bee/Cargo.toml)
