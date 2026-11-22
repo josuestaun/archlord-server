@@ -1,6 +1,6 @@
 # Arquitectura provisional
 
-Estado a 21 de noviembre de 2026. El proyecto está en fase de estudio de viabilidad. Quedan por elegir la compilación del cliente, la implementación del servidor, la base de datos y el protocolo de red.
+Estado a 22 de noviembre de 2026. El laboratorio EP8 usa ArchCore con MariaDB y Archonia x64 parche `665`. La combinación para Codemasters EP3 sigue en estudio.
 
 ## Despliegue local
 
@@ -19,7 +19,7 @@ flowchart LR
 | Primer despliegue | Un equipo y un mundo. Escuchar en la interfaz de bucle local cuando el servidor lo permita. Así se puede probar la compatibilidad con independencia del alojamiento. Antes de dar por válida una ejecución local, comprobar las interfaces y los puertos en escucha y los destinos a los que se conecta el lanzador. |
 | Referencia clásica | Propuesta pendiente de aprobación. Episodio 3 de Codemasters, *Spirits Awakening*, antes del traspaso a Webzen en octubre de 2009. La fidelidad al contenido y la compatibilidad con el ejecutable son comprobaciones distintas. |
 | Laboratorio EP8 | ArchCore `ad280a6` compila en Windows x64 y arranca login y mundo con MariaDB `11.4.14` y un esquema limpio. La prueba verificó las escuchas en bucle local. La elección de una base para EP3 sigue pendiente de una pareja cliente-servidor reproducible y de permisos verificables. [Resultado del laboratorio](ARCHCORE_LOCAL_SERVER.md) · [Viabilidad técnica de EP3](EP3_SERVER_FEASIBILITY.md) |
-| Implementación y almacenamiento | Pendientes de verificar una combinación compatible y los datos que requiere. Para la primera ejecución, usar la topología y el procedimiento de inicialización de datos que documente el proyecto elegido. |
+| Pareja cliente-servidor EP8 | Adoptada para el laboratorio. ArchCore `ad280a6`, MariaDB `11.4.14` y Archonia x64 parche `665` permitieron autenticarse, crear un Knight en la interfaz y entrar a la escena original. La elección se revisará si la validación de movimiento o las condiciones de uso impiden continuar con el cliente. [Sesión manual persistente](ARCHCORE_GRAPHICAL_CLIENT.md#sesión-manual-persistente-del-parche-665) |
 | Herramientas propias | TypeScript es una opción si la instalación requiere herramientas propias. Considerar Angular cuando haya un caso de uso concreto para una interfaz web. El primer hito se puede completar sin ella. |
 | Archivos locales | Mantener los archivos y datos autorizados del cliente fuera de la copia de trabajo siempre que sea posible. Si se necesita una ruta en el espacio de trabajo, usar el directorio excluido `.local/` para preparar archivos locales y guardar el estado de ejecución y los archivos de depuración. Mantener en Git los ejemplos de configuración y las migraciones del esquema propias del proyecto para poder revisarlos. |
 | Fuentes del laboratorio EP8 | `server/archcore` es un submódulo de `BlaMacfly/ArchCore` fijado a `ad280a6`. El Git principal registra el gitlink y el Git de ArchCore conserva su propio historial. El checkout parcial materializa Rust, manifiestos y SQL revisado. La configuración, MariaDB y los binarios se mantienen en el laboratorio externo. [Estructura e inicialización](ARCHCORE_LOCAL_SERVER.md#fuentes-en-el-repositorio-principal) |
@@ -47,4 +47,4 @@ La [investigación del servidor clásico](CLASSIC_SERVER_RESEARCH.md) detalla la
 
 ## Próxima decisión
 
-Identificar una compilación EP3 de Codemasters disponible para uso local autorizado. Elegir una base cuando una revisión concreta del servidor documente compatibilidad con ese cliente, permita la reutilización y pueda arrancar con los datos autorizados. El [laboratorio local de ArchCore](ARCHCORE_LOCAL_SERVER.md) aporta un procedimiento comprobado para levantar los servicios EP8 en Windows sin datos del juego.
+Validar una zona de aparición EP8 con el parche `665` y comprobar que el Knight puede desplazarse y recuperar su posición. Tras estabilizar EP8, evaluar adaptaciones hacia EP3 cuando se haya identificado una compilación de Codemasters para uso local autorizado y una base compatible. [Ensayo gráfico de EP8](ARCHCORE_GRAPHICAL_CLIENT.md)
