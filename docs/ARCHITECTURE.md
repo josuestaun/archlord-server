@@ -23,6 +23,7 @@ flowchart LR
 | Herramientas propias | TypeScript es una opción si la instalación requiere herramientas propias. Considerar Angular cuando haya un caso de uso concreto para una interfaz web. El primer hito se puede completar sin ella. |
 | Archivos locales | Mantener los archivos y datos autorizados del cliente fuera de la copia de trabajo siempre que sea posible. Si se necesita una ruta en el espacio de trabajo, usar el directorio excluido `.local/` para preparar archivos locales y guardar el estado de ejecución y los archivos de depuración. Mantener en Git los ejemplos de configuración y las migraciones del esquema propias del proyecto para poder revisarlos. |
 | Fuentes del laboratorio EP8 | `server/archcore` es un submódulo de `BlaMacfly/ArchCore` fijado a `ad280a6`. El Git principal registra el gitlink y el Git de ArchCore conserva su propio historial. El checkout parcial materializa Rust, manifiestos y SQL revisado. La configuración, MariaDB y los binarios se mantienen en el laboratorio externo. [Estructura e inicialización](ARCHCORE_LOCAL_SERVER.md#fuentes-en-el-repositorio-principal) |
+| Regreso a selección EP8 | Validado con Archonia x64 `665`. La integración en el repositorio principal mantiene el pin actual y aporta parches aplicables a una copia aislada, con una regresión reproducible. Priorizar una aportación upstream antes de actualizar el gitlink. Evaluar un repositorio propio cuando EP3 requiera cambios recurrentes o upstream no pueda incorporar el arreglo. Revisar la licencia y la procedencia del contenido que quedaría accesible antes de publicar una derivación. [Prueba gráfica](ARCHCORE_GRAPHICAL_CLIENT.md#validación-gráfica-del-regreso-a-selección) · [Integración](ARCHCORE_RETURN_INTEGRATION.md) |
 
 ## Resultados de la investigación
 
@@ -47,4 +48,4 @@ La [investigación del servidor clásico](CLASSIC_SERVER_RESEARCH.md) detalla la
 
 ## Próxima decisión
 
-Validar una zona de aparición EP8 con el parche `665` y comprobar que el Knight puede desplazarse y recuperar su posición. Tras estabilizar EP8, evaluar adaptaciones hacia EP3 cuando se haya identificado una compilación de Codemasters para uso local autorizado y una base compatible. [Ensayo gráfico de EP8](ARCHCORE_GRAPHICAL_CLIENT.md)
+Tras la revisión de los parches de regreso a selección en `develop`, repetir el recorrido EP8 desde una instalación limpia con recuperación de la posición después de reiniciar el servidor. Tras estabilizar EP8, evaluar adaptaciones hacia EP3 cuando se haya identificado una compilación de Codemasters para uso local autorizado y una base compatible. [Integración del retorno](ARCHCORE_RETURN_INTEGRATION.md) · [Ensayo gráfico de EP8](ARCHCORE_GRAPHICAL_CLIENT.md)

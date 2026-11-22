@@ -229,11 +229,203 @@ El usuario observó el bloqueo con Archonia x64 parche `665`, ArchCore `ad280a6`
 3. El cliente queda en una pantalla con un mensaje similar a «Attempting to reconnect». Se esperaba que mostrara la lista de personajes en la misma ventana.
 4. Como salida comprobada, cerrar completamente `Archonia.exe`, abrirlo de nuevo con el mismo grupo, iniciar sesión y elegir el mismo Knight. El personaje reaparece en el punto guardado.
 
-El log registra que mundo tramitó una solicitud de regreso. En ese intento, el log de login no registra ni validación ni rechazo de la clave de retorno. El primer paso de investigación será comprobar el destino de la conexión que abre el cliente tras la respuesta de mundo y si ArchCore recibe la operación `0x2F` op `6` en el puerto `11102`. Si llega, seguir la validación de la clave y el envío de op `7` y de la lista de personajes. Registrar horas, operaciones y puertos sin guardar el valor de la clave. [Flujo de mundo](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/return_login.rs#L1-L19) · [Validación en login](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/login.rs#L212-L240)
+#### Flujo que implementa ArchCore
+
+| Paso | Mensaje o efecto |
+| --- | --- |
+| Cliente → mundo, puerto `11108` | `AgpmReturnToLogin` (`0x2F`), op `1`, con el CID. Mundo devuelve op `2` si el personaje está muerto o en combate. |
+| Mundo → cliente | Si acepta, genera una clave de un solo uso con 60 segundos de vigencia por defecto y envía `0x2F` op `5`. El campo `4` lleva `ReturnToLogin.LoginAddress` si está configurado. Con el valor vacío el campo se omite y el diseño espera que el cliente reutilice su dirección de login. |
+| Liberación del personaje | Mundo guarda la posición y retira al jugador de la sesión activa de inmediato. Cierra el socket de mundo aproximadamente dos segundos después. Tras una desconexión imprevista, el flujo de reconexión de mundo `0x63` puede retener al jugador hasta 60 segundos. |
+| Cliente → login, puerto esperado `11102` | Después de establecer el cifrado de la nueva conexión, el cliente debe enviar `0x2F` op `6`. Login contrasta y consume la clave, y envía `AGPMLOGIN` op `0` para iniciar la autenticación. |
+| Login → cliente | Tras autenticar de nuevo con `AGPMLOGIN` op `1`, login envía `0x2F` op `7`. El cliente vuelve a pedir la lista de personajes y debe mostrarla en el mismo proceso. |
+
+[Flujo de mundo](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/return_login.rs#L61-L98) · [Reconexión de mundo](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/reconnect.rs#L60-L95) · [Validación en login](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/login.rs#L212-L240) · [Confirmación de vuelta tras autenticar](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/login.rs#L288-L304)
+
+#### Evidencias del laboratorio
+
+Archonia x64 parche `665` tiene `127.0.0.1:11102` en `ArchoniaTest.ini`. El servidor anuncia mundo en `127.0.0.1:11108` y los dos servicios de juego están ligados a loopback. La instancia de Anchorville usa MariaDB en `127.0.0.1:3337`. En el ensayo del bloqueo, `world.conf` carecía de `ReturnToLogin.LoginAddress` y el gestor había limpiado las variables `ARCHCORE_*` heredadas. Con el valor predeterminado vacío, op `5` omite el campo de dirección de login. [Valores predeterminados y lectura de la opción](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/config.rs#L805-L814)
+
+En el ensayo anterior, el log registró que mundo tramitó el regreso y guardó la posición. Cerró el socket dos segundos después. Mundo aceptó tres conexiones nuevas a los 2, 7 y 12 segundos desde la solicitud, todas en `11108`. Las tres completaron el cifrado y se cerraron en el mismo segundo de su apertura. Login no aceptó una conexión nueva hasta que se abrió de nuevo Archonia y se hizo un login ordinario. En el intento de retorno no registró validación ni rechazo de op `6`. Los logs en uso permiten identificar el servicio y el cifrado, pero no el tipo exacto del último paquete de los reintentos de mundo.
+
+Una consulta de solo lectura encontró una clave de retorno vencida que seguía presente en la cuenta de prueba. El diagnóstico registró su presencia y vigencia sin leer ni guardar su valor. El desvío hacia mundo sitúa el bloqueo antes de la validación en login. La hipótesis principal es que, con op `5` sin dirección explícita, el parche `665` no completa el traspaso al puerto `11102` y termina reintentando contra mundo. Validar la dirección explícita permitirá comprobar si basta el cambio de configuración.
+
+Se dejó listo un observador de sockets TCP y eventos filtrados del servidor durante diez minutos. Durante esa ventana no se abrió Archonia y la reproducción en vivo quedó pendiente. La secuencia anterior procede del ensayo gráfico previo y de los logs conservados.
+
+El simulador de ArchCore espera op `5`, pero al reconectar construye por su cuenta la dirección a partir del puerto configurado de login. Sirve para comprobar el intercambio de op `6` y op `7` con una dirección conocida. La selección de destino de Archonia con el campo `4` omitido se comprueba en la prueba gráfica. [Simulador de retorno](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/tools/sim/quickbelt.rs#L117-L146)
+
+#### Cambio de configuración candidato y validación
+
+La primera prueba de solución consiste en enviar al cliente la dirección local de login en op `5`. El cambio candidato es añadir solo esta línea al `world.conf` de la copia de Anchorville.
+
+```ini
+ReturnToLogin.LoginAddress = "127.0.0.1:11102"
+```
+
+La opción ya existe en esta revisión y ArchCore lee la configuración al arrancar. El ensayo conserva la instancia de MariaDB y el mismo Knight. [Construcción de op `5`](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/world/return_login.rs#L39-L47) · [Carga de configuración al arrancar](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/server.rs#L7-L14)
+
+1. Guardar una copia del `world.conf` actual y comprobar por lectura el CID y la posición guardada. Aplicar la línea autorizada y reiniciar ArchCore con el mismo directorio de datos.
+2. Abrir Archonia manualmente, entrar con el Knight y seleccionar volver a personajes mientras esté detenido y fuera de combate.
+3. Correlacionar la aceptación en mundo con una nueva conexión a `127.0.0.1:11102`, el cifrado establecido y la validación de op `6`. Si la traza está disponible, verificar también op `7`. Registrar solo operaciones, horas y extremos TCP.
+4. Confirmar que la lista aparece en el mismo proceso de Archonia. Volver a entrar con el mismo Knight, comparar su posición y repetir el regreso una segunda vez. Si el cliente llega a login pero falta op `6`, seguir el cifrado y el procesamiento de op `5` antes de considerar cambios en Rust. Si op `6` llega y se valida, seguir op `7` y la petición de lista.
+
+#### Ensayo con la dirección explícita
+
+Se respaldó el `world.conf` de la copia de Anchorville y se verificó que el único cambio fue añadir `ReturnToLogin.LoginAddress`. Se reinició solo ArchCore. MariaDB mantuvo su PID y hora de inicio, y SQL devolvió el mismo Knight en la posición guardada. Los avisos del nuevo proceso identificaron el `world.conf` de la copia y mantuvieron la vigencia predeterminada de 60 segundos. La clave de dirección se leyó sin avisos de ausencia o de clave desconocida. El cliente quedó listo para que el usuario probara manualmente.
+
+| Observación durante la prueba manual | Evidencia |
+| --- | --- |
+| Salida de mundo | ArchCore aceptó el retorno y preparó op `5`. El Knight ya estaba detenido. La última muestra de posición y la fila guardada por MariaDB coincidieron a la precisión del log. SQL devolvió `(-476830.15625, 4434.2353515625, -56888.65234375)`. Mundo cerró su socket dos segundos después. |
+| Nuevo destino | El mismo proceso de Archonia abrió un TCP nuevo a `127.0.0.1:11102` y login lo aceptó como sesión `#3`. La conexión inicial de login, `#1`, seguía abierta cuando llegó la nueva. |
+| Cifrado y op `6` | Al iniciar el retorno, login registró una trama que no pudo descifrar en la conexión inicial `#1`. El error indica que tras descifrar faltaba el marcador `0xD6`. En la conexión nueva `#3` no quedó registrado un cifrado establecido. Login no registró validación ni rechazo de op `6`, y la clave permaneció en la base hasta vencer. El diagnóstico nunca leyó su valor. |
+| Cierre manual de Archonia | Las dos conexiones de login se cerraron juntas. El log de `#3` terminó con cero paquetes contabilizados. La conexión inicial `#1` terminó con once, que incluyen su login ordinario. |
+
+El 22 de noviembre, en hora peninsular, login aceptó `#1` desde el puerto de cliente `50775` a las `11:53:50`. El cifrado y la autenticación ordinaria se completaron en ese mismo segundo. A las `11:54:13`, mundo tramitó el retorno, login aceptó `#3` desde `60809` y registró el error de descifrado en `#1`. A las `11:54:15` se cerró mundo. Las dos conexiones de login se cerraron a las `12:02:31`, cuando el usuario cerró el cliente. Los archivos de diagnóstico registran las horas en UTC.
+
+Los eventos de sockets y los avisos filtrados se conservaron fuera de Git en `.local/return-login-address-trial.log` y `.local/return-login-address-warnings.log`. Entre los avisos hubo un paquete de mundo `0x5C` sin manejador durante la entrada inicial. Ocurrió antes del intento de retorno y el Knight pudo entrar y moverse.
+
+#### Qué se sabe del cifrado
+
+`net::run_session` crea un `CryptoSession`, un acumulador de tramas y un manejador del servicio por cada TCP aceptado. `LoginService::connect` crea un `LoginConn` sin autenticación previa. En el login ordinario, el cliente inicia `AGPMSTARTUPENCRYPTION` (`0x48`) op `0` en claro. `net::startup_encryption` responde con ops `6` y `1`. Al recibir op `2` en ese mismo socket, completa el estado Blowfish y envía op `3` cifrada. El retorno necesita ese mismo intercambio antes de que `LoginConn::on_return` pueda recibir `0x2F` op `6`.
+
+`LoginConn::world_enter` envía la entrada a mundo y deja abierta la conexión inicial. Esta conserva su cifrado mientras está abierta. En cambio, la conexión de retorno empieza con un estado propio y vacío. Al cerrar un TCP, `run_session` termina su tarea de escritura y libera su estado al desaparecer sus referencias. El código revisado no comparte los cifradores de ambos sockets ni cierra uno al aceptar el otro. [Estado por conexión y cierre](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/net.rs#L242-L286) · [Procesamiento del cifrado](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/net.rs#L409-L449) · [Transferencia inicial a mundo](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/login.rs#L552-L584)
+
+**Confirmado.** En `#3` se completó TCP y no llegó a procesarse ningún paquete válido, incluido `0x48` op `0`. El contador de cierre se incrementa tras extraer una trama completa y obtener un encabezado válido. Puede quedar en cero si el socket estuvo inactivo o si recibió datos que nunca llegaron a ese punto. En `#1` llegó una trama cifrada que falló antes de leer el encabezado. Su operación queda indeterminada. Los once paquetes de `#1` son un total de toda la sesión y no permiten ubicar un op `0` de retorno. La traza habitual de paquetes entrantes tampoco resuelve esto por sí sola porque las tramas de inicio de cifrado se desvían al manejador antes de esa traza. [Contador y despacho de tramas](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/net.rs#L288-L361) · [Comprobación de la trama descifrada](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore-net/src/framing.rs#L68-L91)
+
+**Hipótesis pendiente.** El cliente abre el socket de retorno y, durante la transición, sigue enviando tráfico al login inicial o usa un contexto de cifrado que ese socket no puede leer. También cabe que llegue una lectura parcial a `#3`. Los logs no permiten afirmar que el op `0` se enviara a `#1` ni descartar que el cliente no lo enviara. La dirección explícita resolvió el destino TCP. Las opciones de retorno de esta revisión cubren la dirección y la vigencia de la clave. Cambiar la vigencia no explica la ausencia del inicio de cifrado.
+
+#### Diagnóstico mínimo y validación de una solución
+
+Conservar `ReturnToLogin.LoginAddress` y preparar, tras autorización, una traza temporal en una instancia de ArchCore separada, ligada a loopback y con datos de prueba independientes. En `net.rs`, `run_session` debe registrar por socket la hora, el identificador, el puerto remoto, número de bytes leídos, número de tramas completas y resultado del descifrado. En `startup_encryption` basta registrar ops `0` y `2` después de decodificarlas, las respuestas encoladas y el estado final del cifrado. En `login.rs`, las marcas de `LoginConn::on_return` y `LoginConn::user_login` permiten corroborar op `6` y la confirmación op `7`. Limitar la traza a esos eventos y omitir los volcados hexadecimales de los errores durante el ensayo. Guardar las métricas fuera de Git. No se necesitan contraseñas, valores de claves ni contenido de tramas.
+
+- Si `#3` no recibe bytes o solo recibe datos incompletos, el siguiente paso es comprobar el envío del cliente tras op `5`. Si op `0` se observa en el socket anterior, evaluar en la instancia de prueba una variante que cierre ese login después de encolar la transferencia inicial en `LoginConn::world_enter`. La variante debe demostrar primero que la entrada normal al mundo sigue funcionando.
+- Si `#3` recibe op `0` y falta op `2`, comprobar en `net::startup_encryption` qué respuestas se encolan y verificar que el escritor las entrega. Si el cifrado se completa y falta op `6`, seguir el envío del cliente y el despacho hacia `LoginConn::on_return`. Una corrección de Rust dependerá de cuál de esos pasos falle.
+
+La aceptación requiere entrar con el Knight, moverlo hasta un punto que pueda comprobarse, detenerlo y pulsar «Cambiar personaje». La lista debe aparecer en el mismo proceso de Archonia. Al seleccionar el mismo CID se debe recuperar ese punto. Repetir el ciclo completo y comprobar en ambos intentos el saludo, op `6`, la autenticación y op `7`. Preparar una cuenta y un Knight equivalentes en los datos de prueba o usar una copia consistente autorizada de la sesión. En el laboratorio persistente sigue disponible el procedimiento de cerrar y abrir Archonia.
+
+#### Binario de diagnóstico local
+
+La copia de trabajo está en `.local/archcore-return-diagnostics`. Se copiaron y verificaron 246 archivos necesarios para compilar desde el submódulo `ad280a6`. El binario se compiló offline con Cargo `1.100.0` y el lockfile fijado. Está en `.local/archcore-return-diagnostics/target/x86_64-pc-windows-msvc/release/archcore.exe` y su SHA-256 es `bb54436229cba968375f230378570c4154f9ee4b12e524b6d7af9f5dc4a09c67`. Se verificó `--help` con y sin el modo de diagnóstico. El ejecutable habitual conserva su SHA-256 `9ac727009c2d558c0c82dff247cb7a51acf9ec85c628efe6c006d2a6ac7ebbc9` en el directorio `target` del laboratorio externo.
+
+Pasaron las dos pruebas unitarias existentes del separador de tramas y el cifrado, y la prueba de construcción de los paquetes de retorno. La prueba instrumentada comprobó después la traza con Archonia.
+
+Para repetir la compilación, ejecutar este comando desde la copia.
+
+```powershell
+rustup run stable-x86_64-pc-windows-msvc cargo build --offline --locked --release -p archcore --target x86_64-pc-windows-msvc --target-dir .\target
+```
+
+La copia modifica tres archivos. `net.rs` instrumenta la recepción, el escritor TCP y el inicio de cifrado. `log.rs` habilita el modo con `ARCHCORE_HANDSHAKE_DIAGNOSTICS=1` y limita la salida a diagnósticos de metadatos. `probe.rs` desactiva la sonda general mientras ese modo está activo. Se conservan los pasos de autenticación, las operaciones de red y la política de cierre.
+
+| Evento esperado | Qué permite comprobar |
+| --- | --- |
+| `tcp_accepted`, `tcp_eof`, `tcp_local_close`, `tcp_closed` | Correlacionar servicios e identificadores de conexión por hora UTC y puertos. El cierre incluye el total de bytes leídos y paquetes contabilizados. |
+| `tcp_read bytes=…` y `frame_split complete_frames=…` | Distinguir un socket sin lecturas de uno que recibió datos y quedó a la espera de completar una trama. |
+| `header valid=…`, `decrypt_error`, `packet_decode_error` | Separar fallos de ensamblado, descifrado, encabezado y decodificación. Los errores de E/S se registran como categorías. |
+| `received type=0x48 op=Some(0) cipher_ready=…`, `handshake_ready`, `sent type=… op=…` | Identificar en qué conexión se decodificó el inicio del cifrado y si el escritor completó la escritura de cada respuesta. Los eventos de `0x2F` permiten correlacionar op `5` con el nuevo TCP y seguir ops `6` y `7`. |
+
+Las operaciones aparecen solo tras decodificar correctamente el paquete. El registro de envío se escribe tras completar la escritura al TCP local. La recepción por el cliente se comprueba observando su siguiente operación. El modo registra únicamente conexiones con ambos extremos en loopback. Suprime los volcados, los detalles de errores de aplicación y la sonda de juego. El volumen de registros y la escritura síncrona a disco pueden alterar los tiempos observados. Acotar la recogida a los dos intentos y usar SQL de lectura para contrastar la posición guardada.
+
+Con autorización para el cambio de proceso y con Archonia cerrado, usar el gestor local desde la raíz del repositorio. Los comandos operan sobre la instancia de Anchorville. El gestor comprueba el PID, los puertos y `@@datadir` de MariaDB antes de arrancar ArchCore. La opción de diagnóstico elige el binario aparte y escribe `archcore-handshake.log` y `archcore-handshake-error.log` en el directorio externo de la copia.
+
+```powershell
+$control = '.\.local\knight-spawn-test.ps1'
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $control -Action StopWorld
+if ($LASTEXITCODE -ne 0) { throw 'The regular ArchCore process did not stop cleanly.' }
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $control -Action StartWorld -HandshakeDiagnostics
+if ($LASTEXITCODE -ne 0) { throw 'The diagnostic ArchCore process did not become ready.' }
+```
+
+Confirmar que el log anuncia `diagnostics_enabled` y que se mantienen las escuchas en `127.0.0.1:11102` y `127.0.0.1:11108`. Abrir el cliente manualmente, completar el login ordinario, entrar con el Knight y pulsar «Cambiar personaje». Comparar las lecturas, op `0`, el estado de cifrado y op `6` entre los dos sockets. Si el nuevo cierra con `read_bytes=0`, el servidor no leyó datos en ese socket. Si registra bytes con cero tramas completas, revisar ese punto antes del descifrado.
+
+Para recuperar la ejecución habitual tras cerrar el cliente y con la autorización correspondiente, detener el ArchCore instrumentado y arrancar sin la opción de diagnóstico. La misma MariaDB conserva la copia y el personaje entre ambos procesos.
+
+```powershell
+$control = '.\.local\knight-spawn-test.ps1'
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $control -Action StopWorld -HandshakeDiagnostics
+if ($LASTEXITCODE -ne 0) { throw 'The diagnostic ArchCore process did not stop cleanly.' }
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $control -Action StartWorld
+if ($LASTEXITCODE -ne 0) { throw 'The regular ArchCore process did not become ready.' }
+```
+
+Si el binario instrumentado termina durante el arranque, comprobar que ese proceso ha salido y que los dos puertos de juego están libres. En ese estado se puede arrancar directamente el binario habitual con `StartWorld`.
+
+#### Resultado de la prueba instrumentada
+
+El 22 de noviembre de 2026 se detuvo ordenadamente el ArchCore habitual y se inició solo el binario instrumentado sobre la misma copia de Anchorville. El nuevo proceso fue el único dueño de `127.0.0.1:11102` y `127.0.0.1:11108`. MariaDB mantuvo su proceso en `3337` y la configuración conservó la dirección de retorno explícita. El usuario abrió y cerró Archonia manualmente.
+
+| Conexión | Secuencia observada |
+| --- | --- |
+| Login inicial `#1`, puerto de cliente `59279` | El servidor aceptó el TCP con `cipher_ready=false`. Recibió `0x48` op `0`, envió ops `6` y `1`, recibió op `2` y envió op `3` con el cifrado establecido. |
+| Mundo `#2`, puerto de cliente `59281` | Completó el cifrado y recibió `0x2F` op `1` al pulsar «Cambiar personaje». El escritor completó el envío de op `5`. El socket se cerró unos dos segundos después. |
+| Login nuevo `#3`, puerto de cliente `59286` | El mismo proceso de Archonia abrió el TCP correcto 93 ms después del envío registrado de op `5`. Al cerrarse, ArchCore informó `read_bytes=0` y `counted_packets=0`. |
+| Login anterior `#1` durante el retorno | Trece milisegundos después de aceptar `#3`, recibió otro `0x48` op `0` con `cipher_ready=true`. El escritor envió ops `6` y `1` por `#1`. La siguiente trama, de 74 bytes, falló al descifrarse. Su operación queda indeterminada. No se completó un segundo handshake ni se decodificó `0x2F` op `6`. |
+
+La traza confirma que Archonia envía el inicio del cifrado por el socket de login anterior aunque ya haya abierto uno nuevo. En `startup_encryption`, op `0` vuelve a preparar el cifrador de envío en esa conexión. La recepción seguía usando el cifrador anterior porque faltó el nuevo op `2`. La causa más probable es que el cliente conserva el socket o el estado de cifrado anterior durante el traspaso. La causa interna en el cliente y el contenido de la trama rechazada siguen abiertos. SQL confirmó que la clave de retorno venció sin consumirse y que el Knight conservó la última posición guardada. Los metadatos quedaron en `archcore-handshake.log` en el directorio externo de la copia.
+
+La corrección mínima candidata es encolar el cierre del login anterior en `LoginConn::world_enter` inmediatamente después de `AUTH_KEY` y `WORLD_ENTER`, manteniendo la dirección de retorno explícita. La cola del escritor procesa esos envíos antes del cierre. El cambio se probaría primero en la copia de código con una instancia aislada y autorización específica. Comprobar primero que la entrada normal al mundo sigue funcionando. Después verificar que el nuevo socket recibe op `0`, completa Blowfish, procesa `0x2F` op `6` y devuelve la lista en el mismo cliente. Repetir el ciclo dos veces y contrastar el mismo CID y su posición. La prueba instrumentada actual solo cambió los registros. [Transferencia de login a mundo](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/login.rs#L552-L584) · [Cola de escritura y cierre](https://github.com/BlaMacfly/ArchCore/blob/ad280a6efc069526fc58445e5397d52a0e809500/crates/archcore/src/net.rs#L259-L273)
+
+#### Variante con cierre ordenado del login inicial
+
+La segunda copia de trabajo está en `.local/archcore-return-close-trial`. Verificamos el SHA-256 de los 246 archivos copiados de la versión instrumentada antes de editar. `LoginConn::world_enter` encola `s.close()` después de `AUTH_KEY` y `WORLD_ENTER`. La traza del escritor registra sus códigos de operación, `FINISH_ENTER` y el cierre de escritura. Los eventos incluyen identificadores de conexión, puertos y tamaños, sin valores de claves ni contenido de paquetes.
+
+Se compiló con Cargo `1.100.0`, `--offline --locked`, perfil `release` y destino `x86_64-pc-windows-msvc`. El SHA-256 del candidato es `bfb3f9002c92c10d25b30e6d571ef71f5a412d3e4d92b79cf7c5b5fa310819db`. Se volvieron a verificar los SHA-256 del ArchCore habitual, la primera versión instrumentada y el ejecutable de Archonia. El gestor local de la variante es `.local/archcore-return-close-trial/control.ps1`. Sus registros están en `run/` dentro de la misma copia, fuera de Git.
+
+Tras reiniciar Windows, la comprobación de solo lectura confirmó que `auth.conf` y `world.conf` de Anchorville fijan el login y el mundo en `127.0.0.1:11102` y `127.0.0.1:11108`, que `ReturnToLogin.LoginAddress` sigue apuntando al login y que SOAP está desactivado. `mariadb.ini` apunta a `archonia-knight-spawn-movement\db` en `127.0.0.1:3337`. La sesión manual original usa `3327`. La comprobación previa encontró libres ambos puertos de MariaDB y los de juego. El manifiesto de parada limpia de Anchorville no estaba presente tras el reinicio.
+
+Pasaron las 383 pruebas unitarias de ArchCore y las 11 de `archcore-net`. Una prueba TCP recibió `AUTH_KEY` y `WORLD_ENTER`, en ese orden, antes del fin de flujo. Para reanudar MariaDB se comparó la base original con su manifiesto y se registraron los SHA-256 de los 412 archivos de Anchorville antes del arranque. La consulta autenticada confirmó `@@datadir` y el puerto `3337`. El Knight de la copia tiene CID `1`, TID `96` y posición guardada `(-476683.375, 4313.16748046875, -55519.4609375)`. Se leyó la fila antes de arrancar ArchCore y la lectura quedó guardada en `run/knight-before.tsv`.
+
+El candidato arrancó con un solo proceso de ArchCore para login y mundo y un solo proceso de MariaDB. Las tres escuchas eran de loopback y `3327` quedó libre. El simulador estableció Blowfish en ambos servicios sin autenticar ninguna cuenta. Las dos conexiones de esa sonda preceden a la prueba gráfica en `run/archcore-handshake.log`.
+
+Archonia x64 parche `665` inició sesión y entró en Anchorville con el Knight. A las `19:11:01.212Z` el escritor de login `#3` completó `AUTH_KEY` (`0x03` op `11`) y `WORLD_ENTER` (`0x0D` op `8`) en ese orden y cerró la escritura. A las `19:11:01.427Z` terminó la sesión inicial de login. Mundo aceptó la conexión `#4` a las `19:11:01.450Z`, completó Blowfish y envió `FINISH_ENTER` a las `19:11:02.344Z`. El usuario confirmó que veía al Knight en el mundo.
+
+En el primer intento de volver a la selección, mundo `#4` recibió `0x2F` op `1` y envió op `5` a las `19:11:50.280Z`. Login aceptó el nuevo TCP `#5` 83 ms después. En ese mismo socket recibió `0x48` op `0`, completó Blowfish a las `19:11:50.383Z` y decodificó `0x2F` op `6` a las `19:11:50.387Z`. Login respondió con `LOGIN_RESULT` (`0x0D` op `15`) dos milisegundos después. En `LoginConn::on_return`, esa respuesta corresponde al rechazo de la validación de retorno. La captura del usuario muestra que Archonia quedó en la pantalla de carga con el diálogo «Invalid account credentials.». En la traza faltaron el desafío `0x0D` op `0` y la confirmación `0x2F` op `7`.
+
+La posición guardada después del intento coincidió con la inicial en los tres ejes para el CID `1`. La consulta de solo lectura también confirmó que la cuenta del Knight seguía teniendo una clave vigente después del rechazo. El código intenta limpiar ese campo en la fila seleccionada por el nombre de cuenta decodificado de op `6`, incluso cuando la comprobación de la clave falla. La clave vigente en la fila del Knight apunta a que la comparación SQL por nombre no encontró esa cuenta. La lectura del paquete exacto sigue pendiente. La trama de 90 bytes admite varias combinaciones de campos con el esquema actual debido al relleno Blowfish. La longitud de la trama por sí sola deja abierta la presencia del campo de cuenta.
+
+Tras cerrar Archonia, se detuvieron ordenadamente ArchCore y MariaDB. El gestor archivó los logs de ArchCore en `run/archcore-stopped-17988.log` y `run/archcore-stopped-17988-error.log`. La consulta final del Knight, guardada en `run/knight-at-shutdown.tsv`, coincidió con la inicial. Se verificó el manifiesto de parada de los 409 archivos de Anchorville, el manifiesto de 408 archivos de la base manual original y que los puertos quedaron libres.
+
+#### Comparación del campo de cuenta
+
+En el login normal (`0x0D` op `1`), el decodificador entrega el campo `2` como 49 bytes. `LoginConn::user_login` toma la longitud del campo `3`, descifra esos bytes con RC4 usando el desafío de esa conexión y convierte el resultado de Windows-1252. La consulta de autenticación busca la cuenta por ese nombre y comprueba su contraseña. Mundo recibe el identificador de la cuenta durante la entrada y guarda la clave de retorno en la fila de ese identificador.
+
+En el regreso (`0x2F` op `6`), el esquema también declara un campo `2` de 49 bytes, bajo una máscara de presencia. `LoginConn::on_return` lo lee como texto Windows-1252 hasta el primer cero, recorta los espacios y usa una cadena vacía si el campo falta. Lee la clave del campo `5`. Busca una fila que cumpla a la vez nombre, clave positiva y vigencia. La limpieza posterior usa el nombre recibido. El login envía el desafío RC4 solo si pasa el retorno. El simulador prepara op `6` con el nombre ya en texto, así que reproduce la expectativa del servidor. El formato real de Archonia `665` sigue por comprobar.
+
+La copia temporal `.local/archcore-return-account-diagnostics` añade presencia y longitud del campo al primer login autenticado y al retorno. En el retorno, una consulta de lectura compara el nombre interpretado con la única cuenta que tenga vigente la clave recibida. La traza registra el resultado de la comparación o un valor indeterminado si falta una coincidencia única o falla la consulta diagnóstica. La traza funciona entre extremos de loopback y se conserva la lógica de autenticación. La compilación `--offline --locked` produjo el binario con SHA-256 `78034f9cf4c3eaed96cbe7a621dac620a9358555ca0b729e145da3188dda3977`. Pasaron 394 pruebas unitarias y la consulta de comparación pasó seis casos sintéticos en SQLite en memoria. El laboratorio permanece apagado y la traza aún requiere una prueba con MariaDB y Archonia.
+
+#### Origen del campo en Archonia x64 parche 665
+
+La inspección estática del ejecutable local con SHA-256 `e13603c37083aaa81e357a622f9cb99b32044f922d18441660c98d87290bb1a6` identificó el origen del campo. En la tabla de despacho del receptor `0x0D` (`0x140771418`), op `1` lleva a `0x140770EA6`. Esa rama toma el campo `2` de la respuesta del servidor y lo copia al búfer de cuenta de `AgcmLogin` (`+0x1794`). Al comenzar el retorno, `0x1406BC150` entrega ese mismo búfer a `0x1402F3470`. El constructor de `0x2F` op `6` comprueba que el texto empiece con un byte distinto de cero y pasa el búfer directamente al serializador como campo `2`, junto con la clave en el campo `5`. El constructor del esquema en `0x1402F29AB` declara un ancho de 49 bytes para el campo de cuenta. El flujo de construcción observado reutiliza el búfer de texto sin aplicarle RC4 en ese paso.
+
+En `ad280a6`, la respuesta `0x0D` op `1` de ArchCore devuelve el búfer cifrado de la petición de login. Eso explica por qué el cliente puede entrar normalmente y luego reenviar como cuenta de retorno los bytes que leyó en esa respuesta. También explica que la consulta por nombre de op `6` pueda fallar mientras la clave de la cuenta correcta sigue vigente. La trama archivada de 90 bytes es compatible con los campos `0`, `2` y `5` del constructor y el relleno de Blowfish. La inspección identifica una causa concreta en el servidor. Queda pendiente confirmar en la interfaz que el ciclo completo funciona con la respuesta corregida.
+
+La corrección está en `.local/archcore-return-compatibility`. La respuesta de login coloca el nombre canónico de la cuenta autenticada en el campo `2`. Op `6` sigue leyendo ese campo como texto y requiere un nombre presente con contenido, una clave positiva y la vigencia registrada para esa cuenta. El servidor bloquea la fila durante la comprobación y consume la clave válida dentro de la misma transacción. El desafío posterior queda vinculado al identificador de la cuenta de la clave, y `0x2F` op `7` se envía solo tras autenticarla con su contraseña. La transferencia al mundo conserva el cierre encolado después de `AUTH_KEY` y `WORLD_ENTER`.
+
+#### Regresión automatizada del retorno
+
+En Windows x64, la variante compiló con Cargo `1.100.0`, `--offline --locked` y el destino `x86_64-pc-windows-msvc`. Su SHA-256 es `fb787373897642f24577d56971ade71a73b39e2311a1ef5e418029293b18fa89`. Pasaron las 394 pruebas unitarias de ArchCore y `archcore-net` y la prueba de integración `tools::sim::return_regression::archonia_665_return_to_selection` contra MariaDB `11.4.14`.
+
+La integración usa una base nueva en `127.0.0.1:3347` con dos cuentas y un Knight de prueba. El simulador reutiliza literalmente el campo `2` de la respuesta de login, como hace el ejecutable inspeccionado. Comprueba la autenticación inicial, `AUTH_KEY`, `WORLD_ENTER` y el fin de flujo TCP en ese orden. Entra al mundo en `127.0.0.1:12108`, recibe `FINISH_ENTER` y solicita el retorno. Cada socket nuevo de login en `127.0.0.1:12102` completa Blowfish antes de op `6`.
+
+El campo canónico Windows-1252 con un carácter acentuado permitió el regreso. La prueba reprodujo el rechazo con los bytes del eco RC4 anterior y cubrió también campo ausente, vacío, espacios, UTF-16, otra cuenta y claves incorrectas, ausentes, negativas o caducadas. Dos conexiones presentaron la misma clave vigente y una sola recibió el desafío. En esa conexión se rechazaron las credenciales válidas de la segunda cuenta y una contraseña errónea de la cuenta esperada. La contraseña correcta produjo `0x2F` op `7`, volvió a listar el personaje y permitió entrar de nuevo con el mismo CID y posición.
+
+Para repetir el ensayo instrumentado, usar `run-return-regression.ps1` de la copia aislada con `Start`, `Test` y `Stop` y el mismo nombre de ejecución nuevo en `-Run`. Se conservaron los logs en `return-fixture-compat-1` y la instancia desechable se apagó. Los manifiestos de 409 archivos de Anchorville y 408 de la sesión manual original coincidieron con sus huellas previas. La preparación para integrar las correcciones tiene su propio procedimiento reproducible. [Integración del retorno a selección](ARCHCORE_RETURN_INTEGRATION.md)
+
+#### Validación gráfica del regreso a selección
+
+El 22 de noviembre de 2026, el usuario confirmó que Archonia `665` volvió a mostrar la lista de personajes. Se usó el candidato instrumentado con ambas correcciones y SHA-256 `fb787373897642f24577d56971ade71a73b39e2311a1ef5e418029293b18fa89`. Solo estaban activos el ArchCore de Anchorville y su MariaDB en `3337`, ambos en loopback.
+
+| Ciclo | Evidencia de login | Reentrada |
+| --- | --- | --- |
+| Primero | La sesión nueva `#5` completó Blowfish, recibió `0x2F` op `6`, confirmó que el campo de cuenta coincidía y envió op `7` a las `19:48:22.723Z`. Siguió la petición y el fin de la lista. | Mundo `#6` envió `FINISH_ENTER` a las `19:48:25.325Z`. |
+| Segundo | La sesión nueva `#7` completó el mismo flujo y envió op `7` a las `19:48:31.838Z`. Siguió la petición y el fin de la lista. | Mundo `#8` envió `FINISH_ENTER` a las `19:48:36.707Z`. |
+
+En las tres transferencias, el escritor completó `AUTH_KEY` y `WORLD_ENTER` antes de cerrar la escritura del login. La traza del ensayo no registró errores de descifrado ni respuestas de rechazo de login. Tras cerrar Archonia, se detuvieron ArchCore y MariaDB ordenadamente. La consulta final devolvió el CID `1` y la posición `(-475579.75, 4402.9248046875, -61020.890625)`. La posición inicial en la base era `(-476683.375, 4313.16748046875, -55519.4609375)`. La traza gráfica confirmó las reentradas. La verificación de las coordenadas de carga en cada reentrada se realizó con el personaje sintético de la regresión automatizada.
+
+El archivo `archcore-stopped-11276.log` y los puntos de control de SQL se conservaron bajo `.local/archcore-return-compatibility/run/`. El manifiesto de la parada de Anchorville registró 409 archivos. Se verificaron las 408 huellas de la sesión manual original y quedaron libres los puertos del laboratorio.
 
 ### Recuperar el Knight de Anchorville
 
-Reanudar la base existente en `archonia-knight-spawn-movement\db` con el `mariadb.ini` de esa copia. Confirmar que MariaDB informa ese directorio en `@@datadir` y escucha en `127.0.0.1:3337`. Arrancar ArchCore con el directorio raíz y la configuración de la copia, apuntando a esa MariaDB. Abrir manualmente `Game\Archonia.exe`, entrar por el grupo `ArchCore` en `127.0.0.1:11102` y seleccionar el Knight existente con la cuenta de la prueba. El punto que debe cargar tras el ensayo es `(-474926.59375, 3354.62890625, -50067.45703125)`. La sesión manual original se conserva por separado.
+Reanudar la base existente en `archonia-knight-spawn-movement\db` con el `mariadb.ini` de esa copia si está detenida. Confirmar que MariaDB informa ese directorio en `@@datadir` y escucha en `127.0.0.1:3337`. Arrancar ArchCore con el directorio raíz y la configuración de la copia, apuntando a esa MariaDB, si los servicios de juego están detenidos. Abrir manualmente `Game\Archonia.exe`, entrar por el grupo `ArchCore` en `127.0.0.1:11102` y seleccionar el Knight existente con la cuenta de la prueba. Tras la validación gráfica quedaron guardados el CID `1` y el punto `(-475579.75, 4402.9248046875, -61020.890625)`. La sesión manual original se conserva por separado.
 
 ## Alternativa secundaria con ArchRust
 
