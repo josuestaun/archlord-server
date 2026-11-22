@@ -1,0 +1,105 @@
+Subject: fix(login): restore character selection after world handoff
+Base-commit: ad280a6efc069526fc58445e5397d52a0e809500
+Modified: 2026-11-22
+SPDX-License-Identifier: GPL-3.0-or-later
+
+diff --git a/crates/archcore/src/login.rs b/crates/archcore/src/login.rs
+index 099d309..b93d91b 100644
+--- a/crates/archcore/src/login.rs
++++ b/crates/archcore/src/login.rs
+@@ -22,6 +22,7 @@ use archcore_net::rc4::capi_crypt;
+ use archcore_net::schema::{self, char_mgr_op, login_op, login_result, mini, ptype, world_op};
+ use archcore_net::{build_mini, decode_mini, Fields, Packet};
+ use async_trait::async_trait;
++use mysql_async::prelude::Queryable;
+ use rand::Rng;
+ use sha2::{Digest, Sha256};
+ use std::sync::{Arc, RwLock};
+@@ -111,7 +112,7 @@ impl Service for Arc<LoginService> {
+         t == ptype::WORLD || t == ptype::LOGIN || t == ptype::RETURN_TO_LOGIN || t == ptype::ARCHCORE_EXT
+     }
+     fn connect(&self, _session: &SessionHandle) -> Box<dyn Connection> {
+-        Box::new(LoginConn { svc: self.clone(), hash_key: None, account: None, characters: Vec::new(), world: String::new(), returning: false })
++        Box::new(LoginConn { svc: self.clone(), hash_key: None, account: None, characters: Vec::new(), world: String::new(), return_account_id: None })
+     }
+ }
+
+@@ -121,8 +122,8 @@ struct LoginConn {
+     account: Option<(u32, String)>,
+     characters: Vec<CharacterRow>,
+     world: String,
+-    /// Retour à la sélection des personnages (AgpmReturnToLogin op 6 accepté) : l'op 7 suit la connexion réussie.
+-    returning: bool,
++    // The return challenge must authenticate the account that owned the one-time key.
++    return_account_id: Option<u32>,
+ }
+
+ fn login(map: impl FnOnce(Fields) -> Fields) -> Fields {
+@@ -220,19 +221,25 @@ impl LoginConn {
+         let username = p.text(2).unwrap_or_default().trim().to_string();
+         let key = p.int(5).unwrap_or(0);
+         let db = &self.svc.db.auth;
+-        let row = db
+-            .first("SELECT id FROM account WHERE username = ? AND return_key = ? AND return_key_until > NOW()", (username.clone(), key))
+-            .await?
+-            .filter(|_| key > 0);
+-        // La clé ne sert qu'une fois, valable ou non.
+-        db.exec("UPDATE account SET return_key = NULL, return_key_until = NULL WHERE username = ?", (username.clone(),)).await?;
+-        if row.is_none() {
+-            info!("[login] #{} retour à la sélection refusé pour {username:?} (clé inconnue ou échue)", s.id());
++        if username.is_empty() || key <= 0 || self.account.is_some() || self.return_account_id.is_some() {
+             self.send_login_result(s, login_result::INCORRECT_USER);
+             return Ok(());
+         }
++        let mut tx = db.begin().await?;
++        let account: Option<(u32,)> = tx
++            .exec_first("SELECT id FROM account WHERE username = ? AND return_key = ? AND return_key_until > NOW() FOR UPDATE", (username.as_str(), key))
++            .await?;
++        if let Some((id,)) = account {
++            tx.exec_drop("UPDATE account SET return_key = NULL, return_key_until = NULL WHERE id = ?", (id,)).await?;
++        }
++        tx.commit().await?;
++        let Some((account_id,)) = account else {
++            info!("[login] #{} retour à la sélection refusé pour {username:?} (clé inconnue ou échue)", s.id());
++            self.send_login_result(s, login_result::INCORRECT_USER);
++            return Ok(());
++        };
+         info!("[login] #{} {username} revient à la sélection des personnages", s.id());
+-        self.returning = true;
++        self.return_account_id = Some(account_id);
+         let hash = make_hash_key();
+         s.send(&schema::LOGIN, login(|f| f.with(0, login_op::HASHKEY).with(1, hash.as_str())));
+         self.hash_key = Some(hash);
+@@ -276,7 +283,10 @@ impl LoginConn {
+                 (username.clone(),),
+             )
+             .await?;
+-        let ok = row.as_ref().is_some_and(|r| col::<String>(r, "password_hash").to_lowercase() == sha256_hex(&password));
++        let ok = row.as_ref().is_some_and(|r| {
++            self.return_account_id.is_none_or(|id| col::<u32>(r, "id") == id)
++                && col::<String>(r, "password_hash").to_lowercase() == sha256_hex(&password)
++        });
+         let Some(row) = row.filter(|_| ok) else {
+             info!("[login] #{} identifiants refusés pour {username:?}", s.id());
+             self.send_login_result(s, login_result::INCORRECT_USER);
+@@ -295,9 +305,10 @@ impl LoginConn {
+         self.account = Some((id, name.clone()));
+         self.load_characters().await?;
+         info!("[login] #{} {name} authentifié ({} personnage(s))", s.id(), self.characters.len());
+-        s.send(&schema::LOGIN, login(|f| f.with(0, login_op::USER_LOGIN).with(2, acct_raw).with(14, 0).with(15, 0)));
++        // Archonia caches this field and sends it as text in RETURN_TO_LOGIN op 6.
++        s.send(&schema::LOGIN, login(|f| f.with(0, login_op::USER_LOGIN).with(2, name.as_str()).with(14, 0).with(15, 0)));
+         // Retour depuis le monde : le client reprend à la liste de ses personnages (AgpmReturnToLogin op 7).
+-        if std::mem::take(&mut self.returning) {
++        if self.return_account_id.take().is_some() {
+             s.send_raw(crate::world::return_login::end_packet());
+         }
+         Ok(())
+@@ -580,6 +591,7 @@ impl LoginConn {
+         let server_info = build_mini(&mini::LOGIN_SERVER_INFO, &Fields::new(&mini::LOGIN_SERVER_INFO).with(0, address.as_str()));
+         // Le client : CHAR_INFO au champ 8, SERVER_INFO au champ 9, CID du personnage au champ 6.
+         s.send(&schema::LOGIN, login(|f| f.with(0, login_op::WORLD_ENTER).with(6, ch.id).with(8, info).with(9, server_info)));
++        s.close();
+         info!("[login] #{} {username} → monde {} ({address}) avec {}", s.id(), self.world, ch.name);
+         Ok(())
+     }
