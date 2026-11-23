@@ -120,11 +120,13 @@ switch ($Action) {
         $patches = @(
             (Join-Path $patchDir '0001-fix-character-selection-return.patch')
             (Join-Path $patchDir '0002-test-character-selection-return.patch')
+            (Join-Path $patchDir '0003-defer-login-handoff-close.patch')
         )
         $apply = @('-C', $workspace, 'apply', '--whitespace=error', "--directory=$relativeBuild")
-        Invoke-Git ($apply + @('--check') + $patches)
-        Invoke-Git ($apply + $patches)
-        Invoke-Git ($apply + @('--reverse', '--check') + $patches)
+        foreach ($patch in $patches) {
+            Invoke-Git ($apply + @('--check', $patch))
+            Invoke-Git ($apply + $patch)
+        }
         [IO.File]::WriteAllText((Join-Path $build 'archcore-base.txt'), $pin + [Environment]::NewLine, $utf8)
         "Prepared patched ArchCore sources in $build"
     }
