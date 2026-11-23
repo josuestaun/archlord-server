@@ -29,17 +29,18 @@ Los NPC, criaturas y mapas observados pertenecen a la carga local preexistente. 
 
 ## Repetir la prueba gráfica
 
-En un escritorio interactivo de Windows, preparar la copia local de Archonia `665` a 1920 × 1080 y el escenario existente con los personajes desechables AnchorKnight y AnchorProbe. El ejecutor usa la copia en `.local/archonia-665-ui/Game` y lee la cuenta de prueba de `anchorville-665-test-account.txt` en la fixture local de Anchorville. Comprueba la huella del cliente y el destino de Login configurado en `ArchoniaTest.ini`. Desde un terminal de desarrollo de Visual Studio x64 con el SDK de Windows, ejecutar `Build` una vez para compilar el capturador. Los siguientes comandos se ejecutan desde la raíz del repositorio.
+En un escritorio interactivo de Windows, preparar la copia local de Archonia `665` a 1920 × 1080 y el escenario con los personajes desechables AnchorKnight y AnchorProbe. El ejecutor usa la copia en `.local/archonia-665-ui/Game` y lee la cuenta de prueba de `anchorville-665-test-account.txt` en la fixture local de Anchorville. Comprueba la huella del cliente y que `ArchoniaTest.ini` tenga un solo grupo en `127.0.0.1:12102`. Elegir un nombre nuevo en `-ArtifactRun` para compilar el capturador y guardar evidencia en un directorio vacío. Ejecutar desde la raíz del repositorio en un terminal de desarrollo x64 con el SDK de Windows. [Configuración del cliente](ARCHCORE_GRAPHICAL_CLIENT.md#conexión-al-laboratorio)
 
 ```powershell
 $ui = '.\scripts\test-archonia-ui.ps1'
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Build
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Launch
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Enter -Character AnchorKnight -Label knight -ObserveSeconds 300
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Inventory -Label knight-inventory
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Return -Label knight-return
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Reenter -Character AnchorProbe -Label probe -ObserveSeconds 300
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Close -Label probe-close
+$artifacts = 'anchorville-smoke-1'
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Build -ArtifactRun $artifacts
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Launch -ArtifactRun $artifacts
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Enter -ArtifactRun $artifacts -Character AnchorKnight -Label knight -ObserveSeconds 300
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Inventory -ArtifactRun $artifacts -Label knight-inventory
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Return -ArtifactRun $artifacts -Label knight-return
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Reenter -ArtifactRun $artifacts -Character AnchorProbe -Label probe -ObserveSeconds 15
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Close -ArtifactRun $artifacts -Label probe-close
 ```
 
 `Observe` permite volver a muestrear una sesión abierta. Un resumen correcto informa la duración, el número de muestras y el intervalo máximo entre ellas. `Click` recibe coordenadas del área cliente y admite `-RightButton`. `Snapshot` conserva la escena después de la acción. El capturador verifica el HWND y el PID. Los eventos de entrada requieren que la ventana comprobada tenga el foco.
@@ -47,3 +48,13 @@ powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $ui -Action Close 
 El primer arranque dentro del entorno restringido abrió el proceso, pero Windows Graphics Capture devolvió `0x80070424`. La ejecución en el escritorio interactivo permitió capturar e introducir acciones. Las capturas archivadas comprobaron la detección del aviso de reconexión, el marco del menú de selección y la confirmación de salida. Los dos últimos se reconocen por rasgos visuales en escenas donde el OCR omitía el texto.
 
 La arena iluminada de Limelight Northern reprodujo un falso positivo en la detección del menú. El detector comprueba ahora el contraste entre el marco y el interior. Las capturas verificaron el menú abierto y cerrado en esa escena y en Anchorville. Después del cambio, el cierre gráfico en la playa completó la confirmación y salió con código `0`.
+
+## Cierre del hito
+
+Se preparó una copia nueva de ArchCore desde `ad280a6` y se recompiló el capturador de Windows en `.local/archonia-665-ui/run-milestone48`. En la base gráfica ya provisionada, AnchorKnight completó 301,45 segundos de observación con 69 muestras, un intervalo máximo de 4,653 segundos y sin aviso de reconexión durante el muestreo. La prueba abrió su inventario, volvió a selección y entró con AnchorProbe. Se abrió su inventario y el cliente terminó con código `0`.
+
+En una MariaDB nueva se repitió la regresión TCP de reconexión y regreso a selección. Pasaron también 382 pruebas unitarias de ArchCore y 11 de `archcore-net`. El importador cargó un NPC y un punto de criaturas sintéticos, descartó un NPC cuyo TID faltaba en el catálogo y un punto sin posición, y registró las tres etapas terminadas. La prueba comprobó las filas en MariaDB y dejó el registro en `.local/archcore-return-integration-milestone48/return-fixture-milestone48/`.
+
+El cotejo SQL de solo lectura sobre la base desechable existente confirmó 23 NPC, 12 puntos de criaturas en la región `9` y tres etapas de importación terminadas. Las pruebas gráficas de Anchorville y Limelight Northern usan esa carga ya disponible. La preparación gráfica integral desde un catálogo real vacío sigue pendiente.
+
+El overlay `prepare-anchorville-npcs.ps1` y el borrador histórico `ARCHCORE_ANCHORVILLE_SPAWNS.md` se conservan en el árbol de trabajo. El overlay experimental reintroduce dos colocaciones cuyos TID carecen de plantilla en la copia de Archonia `665`. La carga validada sigue usando las reglas del importador fijado. La reproducción desde una base vacía se comprueba con datos sintéticos mediante `TestImport`. [Regresión reproducible](ARCHCORE_RETURN_INTEGRATION.md#reproducción-local)
