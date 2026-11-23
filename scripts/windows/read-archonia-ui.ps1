@@ -103,13 +103,18 @@ function Test-QuitDialog($Bitmap) {
 
 function Test-GameMenu($Bitmap) {
     if ($Bitmap.Width -ne 1920 -or $Bitmap.Height -ne 1080) { return $false }
-    # Check both metallic sides and the title bar of the centered menu.
+    # The metallic frame must surround a dark interior, even on bright terrain.
     $bright = 0
     $samples = 0
-    for ($y = 465; $y -le 620; $y += 5) {
-        foreach ($x in (848, 1065)) {
-            $pixel = $Bitmap.GetPixel($x, $y)
-            if (($pixel.R + $pixel.G + $pixel.B) -gt 280) { $bright++ }
+    for ($y = 475; $y -le 620; $y += 5) {
+        foreach ($side in @(@(848, 860), @(1065, 1053))) {
+            $edge = $Bitmap.GetPixel($side[0], $y)
+            $inside = $Bitmap.GetPixel($side[1], $y)
+            $edgeBrightness = $edge.R + $edge.G + $edge.B
+            $insideBrightness = $inside.R + $inside.G + $inside.B
+            if ($edgeBrightness -gt 280 -and $insideBrightness -lt 220 -and ($edgeBrightness - $insideBrightness) -gt 130) {
+                $bright++
+            }
             $samples++
         }
     }
