@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('Prepare', 'Build', 'Start', 'Test', 'Stop')]
+    [ValidateSet('Prepare', 'Build', 'Start', 'Test', 'TestImport', 'Stop')]
     [string]$Action,
 
     [Parameter(Mandatory)]
@@ -30,7 +30,7 @@ $conf = Join-Path $root 'config'
 if (-not $MariaDbBin) {
     $MariaDbBin = Join-Path (Split-Path -Parent $workspace) 'archcore-windows-lab\local-server\distribution\mariadb-11.4.14-winx64\bin'
 }
-if ($Action -in @('Start', 'Test', 'Stop')) {
+if ($Action -in @('Start', 'Test', 'TestImport', 'Stop')) {
     $MariaDbBin = (Get-Item -LiteralPath $MariaDbBin).FullName
 }
 $maria = Split-Path -Parent $MariaDbBin
@@ -120,11 +120,13 @@ switch ($Action) {
         $patches = @(
             (Join-Path $patchDir '0001-fix-character-selection-return.patch')
             (Join-Path $patchDir '0002-test-character-selection-return.patch')
+            (Join-Path $patchDir '0003-defer-login-handoff-close.patch')
         )
         $apply = @('-C', $workspace, 'apply', '--whitespace=error', "--directory=$relativeBuild")
-        Invoke-Git ($apply + @('--check') + $patches)
-        Invoke-Git ($apply + $patches)
-        Invoke-Git ($apply + @('--reverse', '--check') + $patches)
+        foreach ($patch in $patches) {
+            Invoke-Git ($apply + @('--check', $patch))
+            Invoke-Git ($apply + $patch)
+        }
         [IO.File]::WriteAllText((Join-Path $build 'archcore-base.txt'), $pin + [Environment]::NewLine, $utf8)
         "Prepared patched ArchCore sources in $build"
     }
@@ -181,7 +183,7 @@ switch ($Action) {
         }
         throw 'Fixture MariaDB did not become ready.'
     }
-    'Test' {
+    { $_ -in 'Test', 'TestImport' } {
         Assert-PreparedSource
         $null = Get-FixtureDatabase
         if (@(Get-Listeners | Where-Object Port -in @($loginPort,$worldPort)).Count) { throw 'A fixture game port is busy.' }
@@ -202,6 +204,11 @@ switch ($Action) {
             $initOutput = @(& $archcore db-init)
             if ($LASTEXITCODE -ne 0) { throw 'Fixture ArchCore migration failed.' }
             $initOutput | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $root 'migrations.log')
+            if ($Action -eq 'TestImport') {
+                . (Join-Path $PSScriptRoot 'windows\test-spawn-import.ps1')
+                Test-SyntheticSpawnImport -Fixture $root -ArchCore $archcore -SqlClient $client -Endpoint $endpoint
+                return
+            }
             $name = 'tools::sim::return_regression::archonia_665_return_to_selection'
             $testOutput = @(& rustup run $toolchain cargo test @cargoArgs -p archcore -- $name --exact --ignored --nocapture)
             $success = $LASTEXITCODE -eq 0
