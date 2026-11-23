@@ -30,13 +30,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not start the disposable database.' }
 try {
     powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $runner -Action Test -Run $trialName
     if ($LASTEXITCODE -ne 0) { throw 'The return integration test failed.' }
+    powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $runner -Action TestImport -Run $trialName
+    if ($LASTEXITCODE -ne 0) { throw 'The spawn import regression failed.' }
 } finally {
     powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $runner -Action Stop -Run $trialName
     if ($LASTEXITCODE -ne 0) { throw 'The disposable database did not stop cleanly.' }
 }
 ```
 
-`Start` crea una base nueva en `127.0.0.1:3347`. `Test` valida la ruta de datos, genera contraseñas desechables y levanta login y mundo dentro de la prueba en `12102` y `12108`, exclusivamente en loopback. `Stop` conserva la base desechable y los registros. Si MariaDB está en otra ruta, pasar `-MariaDbBin` a `Start`, `Test` y `Stop`. Las bases persistentes permanecen fuera de ese recorrido.
+`Start` crea una base nueva en `127.0.0.1:3347`. `Test` valida la ruta de datos, genera contraseñas desechables y levanta Login y World dentro de la prueba en `12102` y `12108`, exclusivamente en loopback. `TestImport` comprueba la fusión de NPC, la unión de los spawns de criaturas y las etapas de importación con tablas sintéticas. La prueba exige tablas de spawns e historial de importación vacíos. Ejecutarla después de `Test` permite reutilizar la base de prueba. `Stop` conserva la base desechable y los registros. Si MariaDB está en otra ruta, pasar `-MariaDbBin` a `Start`, `Test`, `TestImport` y `Stop`. Las bases persistentes permanecen fuera de ese recorrido.
 
 Fuera de la regresión, el binario corregido está en `.local/archcore-return-integration-<run>/target/x86_64-pc-windows-msvc/release/archcore.exe`. Para usarlo en el laboratorio local administrado, pasar esa ruta a `-ArchCoreExe` en sus controles. El `world.conf` de esa instancia debe tener `ReturnToLogin.LoginAddress` con su dirección de login en loopback. La regresión ya configura su propia dirección de retorno. [Controles del laboratorio y selección de ejecutable](ARCHCORE_LOCAL_SERVER.md#controles-desde-vs-code-y-powershell)
 
@@ -48,7 +50,7 @@ El binario con los dos primeros parches sirve como control gráfico del aviso de
 
 ## Licencia y procedencia
 
-- El manifiesto del pin local declara `GPL-3.0-or-later`. Los dos parches indican el origen, la fecha de modificación y la licencia. Su directorio incluye una copia literal de la licencia del pin. Al distribuir una versión modificada, se conservan los avisos y se marcan las modificaciones y su fecha. Para distribuir un binario hay que ofrecer el código fuente correspondiente de esa versión, incluidos los cambios y los scripts necesarios según la modalidad de distribución. La mera agregación con obras independientes tiene un tratamiento distinto en la sección 5. [Licencia incluida](../server/patches/archcore/COPYING) · [GPLv3, secciones 1, 2, 4, 5, 6 y 14](https://www.gnu.org/licenses/gpl-3.0.html)
+- El manifiesto del pin local declara `GPL-3.0-or-later`. Los tres parches indican el origen, la fecha de modificación y la licencia. Su directorio incluye una copia literal de la licencia del pin. Al distribuir una versión modificada, se conservan los avisos y se marcan las modificaciones y su fecha. Para distribuir un binario hay que ofrecer el código fuente correspondiente de esa versión, incluidos los cambios y los scripts necesarios según la modalidad de distribución. La mera agregación con obras independientes tiene un tratamiento distinto en la sección 5. [Licencia incluida](../server/patches/archcore/COPYING) · [GPLv3, secciones 1, 2, 4, 5, 6 y 14](https://www.gnu.org/licenses/gpl-3.0.html)
 - El mantenedor indica que upstream incluye tablas del servidor y un mapa de EP8 bajo `data/server-ini`. La procedencia y los derechos de esos datos, de los recursos de Archonia y de cualquier contenido futuro de EP3 se verifican por separado. Antes de publicar un repositorio derivado, revisar también el historial que quedaría accesible. Un checkout parcial limita las descargas locales, pero publicar un commit hace accesible el historial que lo precede en el repositorio de destino. [Inventario descrito por el mantenedor](https://github.com/BlaMacfly/ArchCore#quick-start) · [Visibilidad e historial de los forks](https://docs.github.com/en/pull-requests/reference/forks#visibility-of-forks)
 
 ## Integración recomendada
