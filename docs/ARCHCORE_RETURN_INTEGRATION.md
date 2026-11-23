@@ -8,6 +8,7 @@ Propuesta del 22 de noviembre de 2026. Archonia x64 parche `665` completó dos r
 | --- | --- |
 | [`0001` de login](../server/patches/archcore/0001-fix-character-selection-return.patch) | Encola el cierre después de `AUTH_KEY` y `WORLD_ENTER`. Devuelve el nombre canónico en la respuesta `USER_LOGIN`, que Archonia reutiliza en op `6`. Exige nombre con contenido y clave vigente, la consume en una transacción y vincula la reautenticación a la misma cuenta. |
 | [`0002` de regresión](../server/patches/archcore/0002-test-character-selection-return.patch) | Verifica los paquetes recibidos, su orden y el fin de flujo TCP. Usa el campo de cuenta de la respuesta y cubre el regreso correcto, el eco RC4 anterior, las representaciones inválidas, el uso único, la caducidad y la reautenticación. |
+| [`0003` de transferencia a World](../server/patches/archcore/0003-defer-login-handoff-close.patch) | Da tres segundos al cliente para cambiar de socket antes de cerrar el Login anterior. Durante ese plazo la sesión transferida deja de procesar solicitudes de aplicación. La regresión comprueba el orden de la transferencia, la entrada a World con el Login anterior aún abierto y el EOF posterior. |
 
 El parche funcional modifica únicamente `crates/archcore/src/login.rs`. Reutiliza la cola de escritura de ArchCore. La instrumentación temporal forma parte del binario observado en la prueba gráfica y queda fuera de los parches. Los parches tampoco necesitan cambios de esquema ni recursos de Archonia.
 
@@ -40,6 +41,10 @@ try {
 Fuera de la regresión, el binario corregido está en `.local/archcore-return-integration-<run>/target/x86_64-pc-windows-msvc/release/archcore.exe`. Para usarlo en el laboratorio local administrado, pasar esa ruta a `-ArchCoreExe` en sus controles. El `world.conf` de esa instancia debe tener `ReturnToLogin.LoginAddress` con su dirección de login en loopback. La regresión ya configura su propia dirección de retorno. [Controles del laboratorio y selección de ejecutable](ARCHCORE_LOCAL_SERVER.md#controles-desde-vs-code-y-powershell)
 
 La ejecución `return-1` repitió el procedimiento anterior desde una copia nueva del pin. Pasaron 382 pruebas unitarias de ArchCore, 11 de `archcore-net` y la regresión de integración con MariaDB. La regresión comprobó la lista y la reentrada con el mismo CID y las mismas coordenadas sintéticas. El binario compilado en esa ejecución tiene SHA-256 `7bd85e9990230e49e1aba264efdd5eeab4134aa93d0d9667f837ccdbf3246de1`. La base desechable se apagó y los puertos quedaron libres. La exportación del índice con `core.autocrlf=true` conservó los parches y la licencia byte por byte, y los parches exportados pasaron `git apply --check`. La prueba gráfica usó el binario instrumentado. La regresión ejecutó las funciones del servidor limpio dentro del proceso de pruebas.
+
+El ensayo `session48` usó una copia nueva del pin y el tercer parche. Pasaron 382 pruebas de ArchCore, 11 de `archcore-net` y la regresión de integración ejecutada explícitamente contra una MariaDB nueva. La prueba comprobó que el socket anterior sigue abierto al comenzar la transferencia y recibe EOF después de la entrada en World. También volvió a verificar el regreso a selección y las claves de un solo uso.
+
+El binario con los dos primeros parches sirve como control gráfico del aviso de reconexión. Para volver a él, cerrar la copia gráfica, detener Login y World del laboratorio y arrancar el binario anterior con la misma configuración local. La base es compatible con ambos binarios porque los tres parches conservan el esquema. [Control y resultados](EP8_AUTONOMOUS_PROGRESS.md)
 
 ## Licencia y procedencia
 

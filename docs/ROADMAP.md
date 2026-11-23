@@ -11,17 +11,19 @@ El primer objetivo es conseguir una sesión local de ArchLord EP8 jugable y esta
 | 4. Prueba privada, opcional | Preparar una prueba controlada si se aprueba. Revisar el acceso, el soporte de las dependencias, las copias de seguridad y su restauración, la monitorización y los costes de operación. | Demostrar que se pueden restaurar los datos y revertir los cambios, documentar los límites conocidos y obtener autorización para cualquier acceso externo. |
 | 5. Operación pública, opcional | Revisar los derechos de alojamiento, uso de nombres y distribución de cada componente. Planificar la gestión del abuso, la privacidad, el soporte de las dependencias, la capacidad y la respuesta a incidentes. | Resolver los derechos y requisitos operativos aplicables, superar las comprobaciones previas al lanzamiento y obtener autorización explícita para publicar. |
 
-El laboratorio EP8 completó la [compilación en Windows](ARCHCORE_WINDOWS_LAB.md), el [arranque con MariaDB](ARCHCORE_LOCAL_SERVER.md) y la [creación de un Knight y entrada gráfica al mundo](ARCHCORE_GRAPHICAL_CLIENT.md#sesión-manual-persistente-del-parche-665). En una copia aislada también se comprobó [el movimiento por clic cerca de Anchorville y la recuperación de la posición al abrir de nuevo Archonia](ARCHCORE_GRAPHICAL_CLIENT.md#ensayo-de-aparición-en-anchorville). En la fase 2 queda por reproducir el recorrido desde una instalación limpia y verificar el punto guardado tras reiniciar el servidor.
+El laboratorio EP8 completó la [compilación en Windows](ARCHCORE_WINDOWS_LAB.md), el [arranque con MariaDB](ARCHCORE_LOCAL_SERVER.md) y la [creación de un Knight y entrada gráfica al mundo](ARCHCORE_GRAPHICAL_CLIENT.md#sesión-manual-persistente-del-parche-665). En una copia aislada también se comprobó el movimiento por clic y la recuperación de la posición tras reiniciar Login y World. En la fase 2 queda reproducir la preparación de las entradas autorizadas y el recorrido gráfico desde una instalación limpia. [Prueba de reinicio](EP8_AUTONOMOUS_PROGRESS.md)
 
 La [validación gráfica del regreso a selección con Archonia x64 parche 665](ARCHCORE_GRAPHICAL_CLIENT.md#validación-gráfica-del-regreso-a-selección) completó dos ciclos en la misma instancia del cliente. Los [parches y la regresión del servidor](ARCHCORE_RETURN_INTEGRATION.md) se integraron en `develop` mediante el PR #12 sobre el pin actual. La [viabilidad técnica de EP3](EP3_SERVER_FEASIBILITY.md) recoge el estado de la referencia clásica.
 
 ## Próximos hitos de EP8
 
-La [auditoría de jugabilidad](ARCHCORE_GAMEPLAY_AUDIT.md) identificó los catálogos vacíos de Anchorville y comprobó por TCP un ciclo sintético de diálogo, combate, reaparición, experiencia y Gold. Para cerrar la fase 2 y arrancar la fase 3, el primer objetivo es reproducir la sesión desde una MariaDB limpia y mostrar **un NPC y un monstruo en Anchorville** con Archonia `665`. Validar sus apariciones, abrir el diálogo y comprobar el punto guardado del personaje de prueba tras reiniciar World. [Criterios del primer escenario](ARCHCORE_GAMEPLAY_AUDIT.md#primer-objetivo-para-la-siguiente-rama)
+La [auditoría de jugabilidad](ARCHCORE_GAMEPLAY_AUDIT.md) comprobó por TCP un ciclo sintético de diálogo, combate, reaparición, experiencia y Gold. El laboratorio de Anchorville ya permite ver NPC, abrir la conversación y el catálogo de Darryl y comprar un objeto con Archonia `665`. La compra se verificó en la bolsa, el monedero y MariaDB. [Evidencia gráfica](EP8_AUTONOMOUS_PROGRESS.md)
+
+La prueba gráfica con el cierre diferido de Login completó tres tramos de cinco minutos, movimiento, inventario, cambio de personaje y reentrada, con una repetición tras reiniciar el servidor. Queda verificar una criatura seleccionable y su comportamiento. [Reproducción y límites de la prueba](EP8_AUTONOMOUS_PROGRESS.md)
 
 La fase 3 sigue este orden y reutiliza el código y los simuladores del pin donde cubran el caso.
 
-1. Validar visibilidad y terreno con el NPC y el monstruo.
+1. Confirmar la selección de un enemigo en el sector ya cargado de Limelight Northern. La fauna doméstica observada en Anchorville carece de los bits de objetivo de combate.
 2. Validar ataque, represalia, muerte y respawn con un segundo cliente local para observar sincronización.
 3. Validar experiencia, subida de nivel, Gold y recogida de un objeto con persistencia.
 4. Validar el inventario, un equipamiento, una skill y un buff.
