@@ -11,6 +11,7 @@ param(
     [ValidateSet('Escape', 'Enter', 'Tab', 'I')][string]$Key = 'Escape',
     [ValidateSet('AnchorKnight', 'AnchorProbe')][string]$Character = 'AnchorKnight',
     [ValidatePattern('^[A-Za-z0-9-]{1,48}$')][string]$Label = 'archonia',
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')][string]$ArtifactRun,
     [ValidateRange(0, 240)][int]$SelectionDelaySeconds = 0,
     [ValidateRange(0, 300)][int]$ObserveSeconds = 0
 )
@@ -21,11 +22,22 @@ $local = Join-Path $root '.local'
 $ui = Join-Path $local 'archonia-665-ui'
 $game = Join-Path $ui 'Game'
 $client = Join-Path $game 'Archonia.exe'
-$record = Join-Path $ui 'copy-process.json'
-$capture = Join-Path $ui 'capture.exe'
+$artifacts = if ($ArtifactRun) { Join-Path $ui "run-$ArtifactRun" } else { $ui }
+$record = Join-Path $artifacts 'copy-process.json'
+$capture = Join-Path $artifacts 'capture.exe'
 $fixture = Join-Path $local 'archcore-return-integration-anchorville-spawns\return-fixture-anchorville-spawns'
 $account = Join-Path $fixture 'anchorville-665-test-account.txt'
 $clientHash = 'E13603C37083AAA81E357A622F9CB99B32044F922D18441660C98D87290BB1A6'
+
+function Assert-LocalDirectory([string]$Path) {
+    $directory = Get-Item -LiteralPath $Path -Force
+    while ($directory.FullName -ne $root) {
+        if ($directory -isnot [IO.DirectoryInfo] -or ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'The graphical fixture must use ordinary local directories.'
+        }
+        $directory = $directory.Parent
+    }
+}
 
 function Get-TestClient {
     $saved = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
@@ -40,7 +52,7 @@ function Get-TestClient {
 
 function Save-Snapshot([string]$Name) {
     $process = Get-TestClient
-    $path = Join-Path $ui "$Name-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff')).png"
+    $path = Join-Path $artifacts "$Name-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff')).png"
     & $capture ([string]$process.MainWindowHandle) ([string]$process.Id) $path
     if ($LASTEXITCODE -ne 0) { throw "Archonia window capture failed (exit $LASTEXITCODE)." }
     $path
@@ -52,7 +64,7 @@ function Read-Snapshot([string]$Name) {
     [pscustomobject]@{ Image = $path; State = $state }
 }
 
-function Wait-Screen([string]$Expected, [int]$Timeout = 15) {
+function Wait-Screen([string]$Expected, [int]$Timeout = 15, [switch]$DiscardUnverifiedFrames) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     do {
         $frame = Read-Snapshot "$Label-$Expected"
@@ -60,8 +72,12 @@ function Wait-Screen([string]$Expected, [int]$Timeout = 15) {
             throw "Archonia displayed the reconnect failure. Capture: $($frame.Image)"
         }
         if ($frame.State -contains $Expected) { return $frame }
+        if ($DiscardUnverifiedFrames) { [IO.File]::Delete($frame.Image) }
         Start-Sleep -Milliseconds 350
     } while ($clock.Elapsed.TotalSeconds -lt $Timeout)
+    if ($DiscardUnverifiedFrames) {
+        throw "Screen '$Expected' was not identified ($($frame.State -join ', '))."
+    }
     throw "Screen '$Expected' was not identified ($($frame.State -join ', ')). Last capture: $($frame.Image)"
 }
 
@@ -131,8 +147,13 @@ if ($Action -eq 'Build') {
     if (!(Get-Command cl.exe -ErrorAction SilentlyContinue)) {
         throw 'Open an x64 Visual Studio developer prompt with the Windows SDK, then repeat Build.'
     }
+    $null = New-Item -ItemType Directory -Path $local -Force
+    Assert-LocalDirectory $local
     $null = New-Item -ItemType Directory -Path $ui -Force
-    Push-Location -LiteralPath $ui
+    Assert-LocalDirectory $ui
+    $null = New-Item -ItemType Directory -Path $artifacts -Force
+    Assert-LocalDirectory $artifacts
+    Push-Location -LiteralPath $artifacts
     try {
         & cl.exe /nologo /std:c++17 /EHsc /W4 /utf-8 (Join-Path $PSScriptRoot 'windows\archonia-capture.cpp') `
             /Fe:capture.exe d3d11.lib runtimeobject.lib windowscodecs.lib ole32.lib oleaut32.lib user32.lib
@@ -141,17 +162,14 @@ if ($Action -eq 'Build') {
     return
 }
 
+Assert-LocalDirectory $artifacts
 if ($Action -eq 'Launch') {
+    Assert-LocalDirectory $game
     if ((Get-Item -LiteralPath $client).Attributes -band [IO.FileAttributes]::ReparsePoint) {
         throw 'The test executable must be a real local file.'
     }
     if ((Get-FileHash -LiteralPath $client -Algorithm SHA256).Hash -cne $clientHash) {
         throw 'Unexpected Archonia binary in the isolated copy.'
-    }
-    $directory = Get-Item -LiteralPath $game
-    while ($directory.FullName -ne $root) {
-        if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'The copy must be a real directory.' }
-        $directory = $directory.Parent
     }
     if (Get-Process -Name Archonia -ErrorAction SilentlyContinue | Where-Object Path -eq $client) {
         throw 'The managed copy is already running.'
@@ -236,11 +254,11 @@ switch ($Action) {
         $process = Get-TestClient
         [ArchoniaUiInput]::FillLogin($process.MainWindowHandle, 'anchortrial', $lines[1].Substring(10))
         # Select the only allowed server group as soon as its dialog replaces the credential form.
-        # Take no screenshots of the credential form after entering the password.
+        # Keep only verified world-list frames or reconnect evidence after submitting credentials.
         Start-Sleep -Milliseconds 700
         Invoke-Click 965 550
         Invoke-Click 904 609
-        $null = Wait-Screen 'WorldList'
+        $null = Wait-Screen 'WorldList' -DiscardUnverifiedFrames
         Invoke-Click 894 456
         Invoke-Click 901 681
         Enter-World
